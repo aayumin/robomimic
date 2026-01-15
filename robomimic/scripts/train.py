@@ -462,6 +462,38 @@ def train(config, device, resume=False):
     data_logger.close()
 
 
+def convert_config_for_images(config):
+    """
+    Modify config to use image observations.
+    """
+
+    # using high-dimensional images - don't load entire dataset into memory, and smaller batch size
+    config.train.hdf5_cache_mode = "low_dim"
+    config.train.num_data_workers = 0
+    config.train.batch_size = 16
+
+    # replace object with rgb modality
+    config.observation.modalities.obs.low_dim = ["robot0_eef_pos", "robot0_eef_quat", "robot0_gripper_qpos"]
+    config.observation.modalities.obs.rgb = ["agentview_image"]
+
+    # set up visual encoders
+    config.observation.encoder.rgb.core_class = "VisualCore"
+    config.observation.encoder.rgb.core_kwargs.feature_dimension = 64
+    config.observation.encoder.rgb.core_kwargs.backbone_class = 'ResNet18Conv'                         # ResNet backbone for image observations (unused if no image observations)
+    config.observation.encoder.rgb.core_kwargs.backbone_kwargs.pretrained = False                # kwargs for visual core
+    config.observation.encoder.rgb.core_kwargs.backbone_kwargs.input_coord_conv = False
+    config.observation.encoder.rgb.core_kwargs.pool_class = "SpatialSoftmax"                # Alternate options are "SpatialMeanPool" or None (no pooling)
+    config.observation.encoder.rgb.core_kwargs.pool_kwargs.num_kp = 32                      # Default arguments for "SpatialSoftmax"
+    config.observation.encoder.rgb.core_kwargs.pool_kwargs.learnable_temperature = False    # Default arguments for "SpatialSoftmax"
+    config.observation.encoder.rgb.core_kwargs.pool_kwargs.temperature = 1.0                # Default arguments for "SpatialSoftmax"
+    config.observation.encoder.rgb.core_kwargs.pool_kwargs.noise_std = 0.0
+
+    # observation randomizer class - set to None to use no randomization, or 'CropRandomizer' to use crop randomization
+    config.observation.encoder.rgb.obs_randomizer_class = None
+
+    return config
+
+
 def main(args):
 
     if args.config is not None:
@@ -501,6 +533,9 @@ def main(args):
 
         # send output to a temporary directory
         config.train.output_dir = "/tmp/tmp_trained_models"
+
+    # for image
+    config = convert_config_for_images(config)
 
     # lock config to prevent further modifications and ensure missing keys raise errors
     config.lock()
