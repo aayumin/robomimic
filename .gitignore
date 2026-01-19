@@ -12,7 +12,6 @@ datasets/
 
 # trained model.  checkpoints
 **/logs/         
-**/models/       
 **/videos/ 
 
 *.pth
