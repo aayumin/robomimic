@@ -34,13 +34,7 @@ def algo_config_to_class(algo_config):
         algo_kwargs (dict): dictionary of additional kwargs to pass to algorithm
     """
 
-    if algo_config.unet.enabled:
-        return ACTBaselinePolicy, {}
-    elif algo_config.transformer.enabled:
-        raise NotImplementedError()
-    else:
-        raise RuntimeError()
-
+    return ACTBaselinePolicy, {}
 
 
 
@@ -141,6 +135,8 @@ class ACTBaselinePolicy(PolicyAlgo):
         Tp = self.algo_config.horizon.prediction_horizon
         action_dim = self.ac_dim
         B = batch["actions"].shape[0]
+
+
         
         
         with TorchUtils.maybe_no_grad(no_grad=validate):

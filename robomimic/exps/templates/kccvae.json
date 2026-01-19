@@ -90,44 +90,17 @@
                 }
             }
         },
+        "loss_weight": {
+            "bc": 1.0,
+            "kl": 0.1,
+            "supcon": 0.1
+        },
         "horizon": {
             "observation_horizon": 2,
             "action_horizon": 8,
             "prediction_horizon": 16
-        },
-        "unet": {
-            "enabled": true,
-            "kccvae_step_embed_dim": 256,
-            "down_dims": [
-                256,
-                512,
-                1024
-            ],
-            "kernel_size": 5,
-            "n_groups": 8
-        },
-        "ema": {
-            "enabled": true,
-            "power": 0.75
-        },
-        "ddpm": {
-            "enabled": true,
-            "num_train_timesteps": 100,
-            "num_inference_timesteps": 100,
-            "beta_schedule": "squaredcos_cap_v2",
-            "clip_sample": true,
-            "prediction_type": "epsilon"
-        },
-        "ddim": {
-            "enabled": false,
-            "num_train_timesteps": 100,
-            "num_inference_timesteps": 10,
-            "beta_schedule": "squaredcos_cap_v2",
-            "clip_sample": true,
-            "set_alpha_to_one": true,
-            "steps_offset": 0,
-            "prediction_type": "epsilon"
         }
+       
     },
     "observation": {
         "modalities": {

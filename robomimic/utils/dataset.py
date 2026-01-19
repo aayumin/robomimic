@@ -525,6 +525,8 @@ class SequenceDataset(torch.utils.data.Dataset):
 
         # also return the sampled index
         meta["index"] = index
+        meta["index_in_demo"] = index_in_demo
+        meta["phase"] = float(index_in_demo) / demo_length
 
         # language embedding
         if self._lang_emb is not None:
@@ -748,6 +750,9 @@ class MetaDataset(torch.utils.data.Dataset):
         ind_in_ds = idx - self._ds_ind_bins[ds_ind]
         meta = self.datasets[ds_ind].__getitem__(ind_in_ds)
         meta["index"] = idx
+        meta["index_in_demo"] = ind_in_ds
+        meta["phase"] = float(ind_in_ds) / len(self.datasets[ds_ind])
+
         return meta
 
     def get_ds_label(self, idx):

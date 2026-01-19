@@ -42,32 +42,4 @@ class ACTBaselineConfig(BaseConfig):
         self.algo.horizon.action_horizon = 8
         self.algo.horizon.prediction_horizon = 16
         
-        # UNet parameters
-        self.algo.unet.enabled = True
-        self.algo.unet.kccvae_step_embed_dim = 256
-        self.algo.unet.down_dims = [256,512,1024]
-        self.algo.unet.kernel_size = 5
-        self.algo.unet.n_groups = 8
         
-        # EMA parameters
-        self.algo.ema.enabled = True
-        self.algo.ema.power = 0.75
-        
-        # Noise Scheduler
-        ## DDPM
-        self.algo.ddpm.enabled = True
-        self.algo.ddpm.num_train_timesteps = 100
-        self.algo.ddpm.num_inference_timesteps = 100
-        self.algo.ddpm.beta_schedule = 'squaredcos_cap_v2'
-        self.algo.ddpm.clip_sample = True
-        self.algo.ddpm.prediction_type = 'epsilon'
-
-        ## DDIM
-        self.algo.ddim.enabled = False
-        self.algo.ddim.num_train_timesteps = 100
-        self.algo.ddim.num_inference_timesteps = 10
-        self.algo.ddim.beta_schedule = 'squaredcos_cap_v2'
-        self.algo.ddim.clip_sample = True
-        self.algo.ddim.set_alpha_to_one = True
-        self.algo.ddim.steps_offset = 0
-        self.algo.ddim.prediction_type = 'epsilon'
