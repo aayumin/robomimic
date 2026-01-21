@@ -166,6 +166,8 @@ class ACTBaselinePolicy(PolicyAlgo):
             kl_loss = kl_divergence(mu, logvar)
             loss = bc_loss * self.algo_config.loss_weight.bc + kl_loss * self.algo_config.loss_weight.kl
 
+            # print("bc_loss:", bc_loss.item(),  "\t  kl_loss:", kl_loss.item())
+
             losses = {
                 "bc": bc_loss,
                 "kl": kl_loss,
@@ -189,6 +191,8 @@ class ACTBaselinePolicy(PolicyAlgo):
                     "policy_grad_norms": policy_grad_norms
                 }
                 info.update(step_info)
+
+        
 
         return info
 
@@ -221,6 +225,8 @@ class ACTBaselinePolicy(PolicyAlgo):
         # scalar logging 정리
         log = super(ACTBaselinePolicy, self).log_info(info)
         log["Loss"] = info["losses"]["total"].item()
+        log["BC_Loss"] = info["losses"]["bc"].item()
+        log["KL_Loss"] = info["losses"]["kl"].item()
         
         return log
 

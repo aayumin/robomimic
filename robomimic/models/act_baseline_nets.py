@@ -374,30 +374,30 @@ class ACTBaselineNet(nn.Module):
         args.dec_layers = 7
         args.pre_norm = False
         args.activation = "relu"
-        args.return_intermediate_dec=True
-        
-        
-        ## 
+        args.return_intermediate_dec = True
+
         self.num_queries = chunk_size
         self.transformer = build_transformer(args)
         self.encoder = build_encoder(args)
         hidden_dim = self.transformer.d_model
+
         self.action_head = nn.Linear(hidden_dim, action_dim)
         self.is_pad_head = nn.Linear(hidden_dim, 1)
         self.query_embed = nn.Embedding(chunk_size, hidden_dim)
-        self.cls_embed = nn.Embedding(1, hidden_dim) # extra cls token embedding
 
-        # encoder extra parameters
-        self.latent_dim = 32 # final size of latent z # TODO tune
-        self.cls_embed = nn.Embedding(1, hidden_dim) # extra cls token embedding
-        self.encoder_action_proj = nn.Linear(action_dim, hidden_dim) # project action to embedding
-        self.encoder_obs_proj = nn.Linear(cond_dim, hidden_dim)  # project obs to embedding
-        self.latent_proj = nn.Linear(hidden_dim, self.latent_dim*2) # project hidden state to latent std, var
-        self.register_buffer('input_pos_table', get_sinusoid_encoding_table(1+1+chunk_size, hidden_dim)) # [CLS], obs, a_seq
+        self.latent_dim = 32
+        self.cls_embed = nn.Embedding(1, hidden_dim)
+        self.encoder_action_proj = nn.Linear(action_dim, hidden_dim)
+        self.encoder_obs_proj = nn.Linear(cond_dim, hidden_dim)
+        self.latent_proj = nn.Linear(hidden_dim, self.latent_dim * 2)
+        self.register_buffer("input_pos_table", get_sinusoid_encoding_table(1 + 1 + chunk_size, hidden_dim))
 
-        # decoder extra parameters
-        self.latent_out_proj = nn.Linear(self.latent_dim, hidden_dim) # project latent sample to embedding
-        self.latent_pos = nn.Parameter(torch.zeros(1, 1, hidden_dim))
+        self.latent_out_proj = nn.Linear(self.latent_dim, hidden_dim)
+
+        self.dec_pos = nn.Parameter(torch.zeros(1, hidden_dim, 2))
+        nn.init.normal_(self.dec_pos, std=0.02)
+
+    
 
     def forward(self, obs, actions=None, is_pad=None):
         """
@@ -406,47 +406,44 @@ class ACTBaselineNet(nn.Module):
         env_state: None
         actions: batch, seq, action_dim
         """
-        is_training = actions is not None # train or val    # train with CVAE encoder
-        # is_training = False # train without CVAE encoder
+        is_training = actions is not None
         bs, _ = obs.shape
-        ### Obtain latent z from action sequence
+
         if is_training:
-            ## pad
-            if is_pad is None: is_pad = torch.zeros((bs, self.num_queries)).to(obs.device) 
-            cls_joint_is_pad = torch.full((bs, 2), False).to(obs.device) # False: not a padding
-            is_pad = torch.cat([cls_joint_is_pad, is_pad], axis=1)  # (bs, seq+1)
-            ## positional embedding
-            input_pos_embed = self.input_pos_table.clone().detach()
-            input_pos_embed = input_pos_embed.permute(1, 0, 2)  # (seq+2, 1, hidden_dim)
-            ## input embedding
-            action_embed = self.encoder_action_proj(actions) # (bs, seq, hidden_dim)
-            obs_embed = self.encoder_obs_proj(obs)  # (bs, hidden_dim)
-            obs_embed = torch.unsqueeze(obs_embed, axis=1)  # (bs, 1, hidden_dim)
-            cls_embed = self.cls_embed.weight # (1, hidden_dim)
-            cls_embed = torch.unsqueeze(cls_embed, axis=0).repeat(bs, 1, 1) # (bs, 1, hidden_dim)
-            encoder_input = torch.cat([cls_embed, obs_embed, action_embed], axis=1) # (bs, seq+1+1, hidden_dim)
-            encoder_input = encoder_input.permute(1, 0, 2) # (seq+1+1, bs, hidden_dim)
-            # query model
-            encoder_output = self.encoder(encoder_input, pos=input_pos_embed, src_key_padding_mask=is_pad)[0]  #  take cls output only
+            if is_pad is None:
+                is_pad = torch.zeros((bs, self.num_queries), device=obs.device, dtype=torch.bool)
+            else:
+                is_pad = is_pad.to(device=obs.device, dtype=torch.bool)
+
+            cls_obs_is_pad = torch.full((bs, 2), False, device=obs.device, dtype=torch.bool)
+            enc_pad = torch.cat([cls_obs_is_pad, is_pad], dim=1)
+
+            input_pos_embed = self.input_pos_table.to(obs.device).permute(1, 0, 2)
+
+            action_embed = self.encoder_action_proj(actions)
+            obs_embed = self.encoder_obs_proj(obs).unsqueeze(1)
+            cls_embed = self.cls_embed.weight.unsqueeze(0).repeat(bs, 1, 1)
+
+            encoder_input = torch.cat([cls_embed, obs_embed, action_embed], dim=1).permute(1, 0, 2)
+
+            encoder_output = self.encoder(encoder_input, pos=input_pos_embed, src_key_padding_mask=enc_pad)[0]
             latent_info = self.latent_proj(encoder_output)
-            mu = latent_info[:, :self.latent_dim]
-            logvar = latent_info[:, self.latent_dim:]
-            latent_sample = reparametrize(mu, logvar)
-            latent_input = self.latent_out_proj(latent_sample)  # (bs, hidden_dim)
+            mu = latent_info[:, : self.latent_dim]
+            logvar = latent_info[:, self.latent_dim :]
+            z = reparametrize(mu, logvar)
         else:
             mu = logvar = None
-            latent_sample = torch.zeros([bs, self.latent_dim], dtype=torch.float32).to(obs.device)
-            latent_input = self.latent_out_proj(latent_sample)  # (bs, hidden_dim)
+            z = torch.randn((bs, self.latent_dim), device=obs.device, dtype=obs.dtype)
 
+        latent_token = self.latent_out_proj(z)
+        obs_token = self.encoder_obs_proj(obs)
 
-        latent_input = latent_input.unsqueeze(2)
-        latent_pos = self.latent_pos.permute((0,2,1))
+        src = torch.stack([latent_token, obs_token], dim=2)
+        pos = self.dec_pos.to(obs.device)
 
-
-        hs = self.transformer(latent_input, None, self.query_embed.weight, latent_pos)[0]
+        hs = self.transformer(src, None, self.query_embed.weight, pos)[0]
         a_hat = self.action_head(hs)
         return a_hat, mu, logvar
-    
 
 
     @torch.no_grad()
@@ -456,24 +453,23 @@ class ACTBaselineNet(nn.Module):
         return_chunk=False,
     ):
         self.eval()
-        
+
         bs, _ = obs_cond.shape
 
-        latent_sample = torch.zeros([bs, self.latent_dim], dtype=torch.float32).to(obs_cond.device)
-        latent_input = self.latent_out_proj(latent_sample)
-        latent_input = latent_input.unsqueeze(2)
-        latent_pos = self.latent_pos.permute((0,2,1))
+        z = torch.randn((bs, self.latent_dim), device=obs_cond.device, dtype=obs_cond.dtype)
+        latent_token = self.latent_out_proj(z)
+        obs_token = self.encoder_obs_proj(obs_cond)
 
-        hs = self.transformer(latent_input, None, self.query_embed.weight, latent_pos)[0]
-        a_hat = self.action_head(hs)
+        src = torch.stack([latent_token, obs_token], dim=2)
+        pos = self.dec_pos.to(obs_cond.device)
 
+        hs = self.transformer(src, None, self.query_embed.weight, pos)[0]
+        a_hat = self.action_head(hs).clamp(-1, 1)
 
         if return_chunk:
             return a_hat
         else:
             return a_hat[:, 0, :]
-
-
 
 
 
