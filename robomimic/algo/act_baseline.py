@@ -72,9 +72,9 @@ class ACTBaselinePolicy(PolicyAlgo):
         
         # set attrs
         self.nets = nets
-        self.ema = None
         self.action_check_done = False
-        self.obs_queue = None
+        self.time_step = None
+        self.action_chunk_history = None
         self.action_queue = None
 
     def process_batch_for_training(self, batch):
@@ -91,7 +91,6 @@ class ACTBaselinePolicy(PolicyAlgo):
                 will be used for training 
         """
         To = self.algo_config.horizon.observation_horizon
-        Ta = self.algo_config.horizon.action_horizon
         Tp = self.algo_config.horizon.prediction_horizon
 
         input_batch = dict()
@@ -111,33 +110,9 @@ class ACTBaselinePolicy(PolicyAlgo):
         return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
 
     def train_on_batch(self, batch, epoch, validate=False):
-        # forward -> loss -> (if not validate) backward/step
-        # return info dict
 
-
-        # # encode obs
-        # inputs = { "obs": batch["obs"], }
-        # for k in self.obs_shapes:
-        #     # first two dimensions should be [B, T] for inputs
-        #     assert inputs["obs"][k].ndim - 2 == len(self.obs_shapes[k])
-        
-        
-        # obs_features = TensorUtils.time_distributed(inputs, self.nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
-        # assert obs_features.ndim == 3  # [B, T, D]
-        # obs_cond = obs_features.flatten(start_dim=1)
-        # # print(obs_features.shape)  ##  (B, 2, 73)
-        # # print(obs_cond.shape)    ## (B, 146)
-
-
-
-        To = self.algo_config.horizon.observation_horizon
-        Ta = self.algo_config.horizon.action_horizon
-        Tp = self.algo_config.horizon.prediction_horizon
-        action_dim = self.ac_dim
         B = batch["actions"].shape[0]
 
-
-        
         
         with TorchUtils.maybe_no_grad(no_grad=validate):
             info = super(ACTBaselinePolicy, self).train_on_batch(batch, epoch, validate=validate)
@@ -183,9 +158,6 @@ class ACTBaselinePolicy(PolicyAlgo):
                     loss=loss,
                 )
                 
-                # update Exponential Moving Average of the model weights
-                if self.ema is not None:
-                    self.ema.step(self.nets)
                 
                 step_info = {
                     "policy_grad_norms": policy_grad_norms
@@ -197,29 +169,79 @@ class ACTBaselinePolicy(PolicyAlgo):
         return info
 
 
-    def get_action(self, obs_dict, goal_dict=None):
-        # obs_dict -> torch action tensor 반환
 
-        inputs = {
-            "obs": obs_dict,
-        }
+    def get_action(self, obs_dict, goal_dict=None):
+        if self.action_queue is None: self.action_queue = deque()
+        if self.action_chunk_history is None: self.action_chunk_history = deque()
+        if self.timestep is None:self.timestep = 0
+
+        ## temporal ensemble
+        if self.algo_config.temporal_ensemble.enabled:
+            alpha = self.algo_config.temporal_ensemble.alpha
+            K = self.algo_config.horizon.prediction_horizon
+
+            chunk = self._get_action_chunk(obs_dict=obs_dict, goal_dict=goal_dict)[0]
+            self.action_chunk_history.append(chunk)
+            if K > 0 and len(self.action_chunk_history) > K:
+                while len(self.action_chunk_history) > K: self.action_chunk_history.popleft()
+
+            preds = []
+            weights = []
+            for idx, past_chunk in enumerate(reversed(self.action_chunk_history)):
+                if idx >= past_chunk.shape[0]: break
+                preds.append(past_chunk[idx])
+                if alpha <= 0: weights.append(1.0)
+                else:
+                    weights.append(float(torch.exp(torch.tensor(-alpha * idx, device=chunk.device)).item()))
+
+            preds = torch.stack(preds, dim=0)
+            w = torch.tensor(weights, device=preds.device, dtype=preds.dtype).view(-1, 1)
+            action = (preds * w).sum(dim=0) / (w.sum(dim=0) + 1e-8)
+
+            action = action.clamp(-1.0, 1.0)
+            self.timestep += 1
+            return action.unsqueeze(0)
+
+        ###
+        query_frequency = self.algo_config.horizon.query_frequency
+        prediction_horizon = self.algo_config.horizon.prediction_horizon
+
+        if (self.timestep % query_frequency == 0) or (len(self.action_queue) == 0):
+            chunk = self._get_action_chunk(obs_dict=obs_dict, goal_dict=goal_dict)[0]
+
+            use_len = min(prediction_horizon, chunk.shape[0])
+            self.action_queue.clear()
+            self.action_queue.extend(chunk[:use_len])
+
+        action = self.action_queue.popleft().clamp(-1.0, 1.0)
+        self.timestep += 1
+        return action.unsqueeze(0)
+
+
+
+    def _get_action_chunk(self, obs_dict, goal_dict=None):
+        assert not self.nets.training
+
+        nets = self.nets
+
+        inputs = {"obs": obs_dict}
         for k in self.obs_shapes:
             if inputs["obs"][k].ndim - 1 == len(self.obs_shapes[k]):
                 inputs["obs"][k] = inputs["obs"][k].unsqueeze(1)
             assert inputs["obs"][k].ndim - 2 == len(self.obs_shapes[k])
-        obs_features = TensorUtils.time_distributed(inputs, self.nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
-        assert obs_features.ndim == 3  # [B, T, D]
-        obs_cond = obs_features.flatten(start_dim=1)        
 
+        obs_features = TensorUtils.time_distributed(inputs, nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
+        obs_cond = obs_features.flatten(start_dim=1)
 
-        action = self.nets["policy"]["act_net"].sample_action(obs_cond)
-        return action
-
+        chunk = nets["policy"]["act_net"].sample_action(obs_cond, return_chunk=True)
+        return chunk
 
 
     def reset(self):
-        # stateful policy면 필수
-        pass
+        self.action_check_done = False
+        self.action_queue = None
+        self.action_chunk_history = None
+        self.timestep = 0
 
     def log_info(self, info):
         # scalar logging 정리

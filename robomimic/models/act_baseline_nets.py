@@ -473,93 +473,93 @@ class ACTBaselineNet(nn.Module):
 
 
 
-# class ACTBaselineNet(nn.Module):
-class ACTBaselineNet__old(nn.Module):
-    """
-    Baseline ACT:
-      cond = [z_img, z_q]
-      loss: BC + KL (contrastive 없음, sem/state split 없음)
-    """
-    def __init__(
-        self,
-        action_dim,
-        chunk_size=16,
-        cond_dim=146, 
-        # latent_dim=512,
-    ):
-        super().__init__()
-        # self.img_enc = ImageEncoderACTBaseline(z_img_dim=z_img_dim)
-        # self.q_enc = obsEncoder(q_dim=q_dim, z_q_dim=z_q_dim)
-        # cond_dim = z_img_dim + z_q_dim
-        self.act = ACTcVAE(cond_dim=cond_dim, action_dim=action_dim, chunk_size=chunk_size)
+# # class ACTBaselineNet(nn.Module):
+# class ACTBaselineNet__old(nn.Module):
+#     """
+#     Baseline ACT:
+#       cond = [z_img, z_q]
+#       loss: BC + KL (contrastive 없음, sem/state split 없음)
+#     """
+#     def __init__(
+#         self,
+#         action_dim,
+#         chunk_size=16,
+#         cond_dim=146, 
+#         # latent_dim=512,
+#     ):
+#         super().__init__()
+#         # self.img_enc = ImageEncoderACTBaseline(z_img_dim=z_img_dim)
+#         # self.q_enc = obsEncoder(q_dim=q_dim, z_q_dim=z_q_dim)
+#         # cond_dim = z_img_dim + z_q_dim
+#         self.act = ACTcVAE(cond_dim=cond_dim, action_dim=action_dim, chunk_size=chunk_size)
 
-    # def forward(self, img, obs, a_chunk, zq_dropout_p=0.0):
-    def forward(self, cond, a_chunk):
+#     # def forward(self, img, obs, a_chunk, zq_dropout_p=0.0):
+#     def forward(self, cond, a_chunk):
     
-        # z_img = self.img_enc(img)
-        # z_q = self.q_enc(obs)
-        # if zq_dropout_p > 0:
-        #     z_q = F.dropout(z_q, p=zq_dropout_p, training=self.training)
+#         # z_img = self.img_enc(img)
+#         # z_q = self.q_enc(obs)
+#         # if zq_dropout_p > 0:
+#         #     z_q = F.dropout(z_q, p=zq_dropout_p, training=self.training)
 
-        # cond = torch.cat([z_img, z_q], dim=1)
+#         # cond = torch.cat([z_img, z_q], dim=1)
         
-        pred, mu, logvar = self.act(cond, a_chunk)
+#         pred, mu, logvar = self.act(cond, a_chunk)
         
-        return pred, mu, logvar
+#         return pred, mu, logvar
 
 
 
-    @torch.no_grad()
-    def sample_action(
-        self,
-        # img,
-        # obs,
-        obs_cond,
-        n_samples=1,
-        temperature=1.0,
-        deterministic=False,
-        return_chunk=False,
-        # zq_dropout_p=0.0,
-        clamp=None,
-    ):
-        self.eval()
+#     @torch.no_grad()
+#     def sample_action(
+#         self,
+#         # img,
+#         # obs,
+#         obs_cond,
+#         n_samples=1,
+#         temperature=1.0,
+#         deterministic=False,
+#         return_chunk=False,
+#         # zq_dropout_p=0.0,
+#         clamp=None,
+#     ):
+#         self.eval()
 
-        # if img.dim() == 3:
-        #     img = img.unsqueeze(0)
-        # if obs.dim() == 1:
-        #     obs = obs.unsqueeze(0)
+#         # if img.dim() == 3:
+#         #     img = img.unsqueeze(0)
+#         # if obs.dim() == 1:
+#         #     obs = obs.unsqueeze(0)
 
-        # cond, _ = self.encode_obs(img, obs, zq_dropout_p=zq_dropout_p)
-        cond = obs_cond
+#         # cond, _ = self.encode_obs(img, obs, zq_dropout_p=zq_dropout_p)
+#         cond = obs_cond
 
-        B = cond.shape[0]
-        L = self.act.chunk_size
-        Da = self.act.action_dim
-        Dz = self.act.latent_dim
+#         B = cond.shape[0]
+#         L = self.act.chunk_size
+#         Da = self.act.action_dim
+#         Dz = self.act.latent_dim
 
-        if deterministic:
-            z = torch.zeros((B, Dz), device=cond.device, dtype=cond.dtype)
-            chunk = self.act.decode(cond, z)
-            if clamp is not None:
-                lo, hi = clamp
-                chunk = chunk.clamp(lo, hi)
-            return chunk if return_chunk else chunk[:, 0, :]
+#         if deterministic:
+#             z = torch.zeros((B, Dz), device=cond.device, dtype=cond.dtype)
+#             chunk = self.act.decode(cond, z)
+#             if clamp is not None:
+#                 lo, hi = clamp
+#                 chunk = chunk.clamp(lo, hi)
+#             return chunk if return_chunk else chunk[:, 0, :]
 
-        if n_samples == 1:
-            z = temperature * torch.randn((B, Dz), device=cond.device, dtype=cond.dtype)
-            chunk = self.act.decode(cond, z)
-            if clamp is not None:
-                lo, hi = clamp
-                chunk = chunk.clamp(lo, hi)
-            return chunk if return_chunk else chunk[:, 0, :]
+#         if n_samples == 1:
+#             z = temperature * torch.randn((B, Dz), device=cond.device, dtype=cond.dtype)
+#             chunk = self.act.decode(cond, z)
+#             if clamp is not None:
+#                 lo, hi = clamp
+#                 chunk = chunk.clamp(lo, hi)
+#             return chunk if return_chunk else chunk[:, 0, :]
 
-        z = temperature * torch.randn((B, n_samples, Dz), device=cond.device, dtype=cond.dtype)
-        cond_rep = cond.unsqueeze(1).expand(B, n_samples, cond.shape[1]).reshape(B * n_samples, -1)
-        z_rep = z.reshape(B * n_samples, Dz)
+#         z = temperature * torch.randn((B, n_samples, Dz), device=cond.device, dtype=cond.dtype)
+#         cond_rep = cond.unsqueeze(1).expand(B, n_samples, cond.shape[1]).reshape(B * n_samples, -1)
+#         z_rep = z.reshape(B * n_samples, Dz)
 
-        chunk = self.act.decode(cond_rep, z_rep).view(B, n_samples, L, Da)
-        if clamp is not None:
-            lo, hi = clamp
-            chunk = chunk.clamp(lo, hi)
-        return chunk if return_chunk else chunk[:, :, 0, :]
+#         chunk = self.act.decode(cond_rep, z_rep).view(B, n_samples, L, Da)
+#         if clamp is not None:
+#             lo, hi = clamp
+#             chunk = chunk.clamp(lo, hi)
+#         return chunk if return_chunk else chunk[:, :, 0, :]
 

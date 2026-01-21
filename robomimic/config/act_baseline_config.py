@@ -36,10 +36,13 @@ class ACTBaselineConfig(BaseConfig):
         self.algo.loss_weight.bc = 1.0
         self.algo.loss_weight.kl = 0.1
 
+        # temporal_ensemble
+        self.algo.temporal_ensemble.enabled = True
+        self.algo.temporal_ensemble.alpha = 0.01
 
         # horizon parameters
         self.algo.horizon.observation_horizon = 2
-        self.algo.horizon.action_horizon = 8
         self.algo.horizon.prediction_horizon = 16
+        self.algo.horizon.query_frequency = 16
         
         

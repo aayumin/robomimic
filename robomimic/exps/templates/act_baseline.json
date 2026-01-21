@@ -77,7 +77,7 @@
             "policy": {
                 "optimizer_type": "adamw",
                 "learning_rate": {
-                    "initial": 0.0001,
+                    "initial": 0.0002,
                     "decay_factor": 0.1,
                     "step_every_batch": true,
                     "scheduler_type": "cosine",
@@ -90,14 +90,19 @@
                 }
             }
         },
+
+        "temporal_ensemble": {
+            "enabled": true,
+            "alpha": 0.01
+        },
         "loss_weight": {
             "bc": 1.0,
             "kl": 0.1
         },
         "horizon": {
             "observation_horizon": 2,
-            "action_horizon": 8,
-            "prediction_horizon": 16
+            "prediction_horizon": 16,
+            "query_frequency": 16
         }
     },
     "observation": {
