@@ -32,6 +32,7 @@ class ACTBaselineConfig(BaseConfig):
         self.algo.optim_params.policy.learning_rate.epoch_schedule = [] # epochs where LR decay occurs (used by "linear" and "multistep" schedulers)
         self.algo.optim_params.policy.learning_rate.do_not_lock_keys()
         self.algo.optim_params.policy.regularization.L2 = 1e-6          # L2 regularization strength
+        self.algo.optim_params.policy.regularization.max_grad_norm = 1.0
 
         self.algo.loss_weight.bc = 1.0
         self.algo.loss_weight.kl = 0.1

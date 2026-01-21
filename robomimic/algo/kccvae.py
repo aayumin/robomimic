@@ -80,10 +80,10 @@ class KCCVAEPolicy(PolicyAlgo):
         
         # set attrs
         self.nets = nets
-        self.ema = None
         self.action_check_done = False
-        self.obs_queue = None
         self.action_queue = None
+        self.time_step = None
+        self.action_chunk_history = None
 
     def process_batch_for_training(self, batch):
         """
@@ -133,6 +133,7 @@ class KCCVAEPolicy(PolicyAlgo):
         Tp = self.algo_config.horizon.prediction_horizon
         action_dim = self.ac_dim
         B = batch["actions"].shape[0]
+        max_grad_norm = self.algo_config.optim_params.policy.regularization.max_grad_norm
 
 
         
@@ -187,11 +188,9 @@ class KCCVAEPolicy(PolicyAlgo):
                     net=self.nets,
                     optim=self.optimizers["policy"],
                     loss=loss,
+                    max_grad_norm=max_grad_norm,
                 )
                 
-                # update Exponential Moving Average of the model weights
-                if self.ema is not None:
-                    self.ema.step(self.nets)
                 
                 step_info = {
                     "policy_grad_norms": policy_grad_norms
@@ -201,34 +200,87 @@ class KCCVAEPolicy(PolicyAlgo):
         return info
 
 
-    def get_action(self, obs_dict, goal_dict=None):
-        # obs_dict -> torch action tensor 반환
 
-        inputs = {
-            "obs": obs_dict,
-        }
+    def get_action(self, obs_dict, goal_dict=None):
+        if self.action_queue is None: self.action_queue = deque()
+        if self.action_chunk_history is None: self.action_chunk_history = deque()
+        if self.timestep is None:self.timestep = 0
+
+        ## temporal ensemble
+        if self.algo_config.temporal_ensemble.enabled:
+            alpha = self.algo_config.temporal_ensemble.alpha
+            K = self.algo_config.horizon.prediction_horizon
+
+            chunk = self._get_action_chunk(obs_dict=obs_dict, goal_dict=goal_dict)[0]
+            self.action_chunk_history.append(chunk)
+            if K > 0 and len(self.action_chunk_history) > K:
+                while len(self.action_chunk_history) > K: self.action_chunk_history.popleft()
+
+            preds = []
+            weights = []
+            for idx, past_chunk in enumerate(reversed(self.action_chunk_history)):
+                if idx >= past_chunk.shape[0]: break
+                preds.append(past_chunk[idx])
+                if alpha <= 0: weights.append(1.0)
+                else:
+                    weights.append(float(torch.exp(torch.tensor(-alpha * idx, device=chunk.device)).item()))
+
+            preds = torch.stack(preds, dim=0)
+            w = torch.tensor(weights, device=preds.device, dtype=preds.dtype).view(-1, 1)
+            action = (preds * w).sum(dim=0) / (w.sum(dim=0) + 1e-8)
+
+            action = action.clamp(-1.0, 1.0)
+            self.timestep += 1
+            return action.unsqueeze(0)
+
+        ###
+        query_frequency = self.algo_config.horizon.query_frequency
+        prediction_horizon = self.algo_config.horizon.prediction_horizon
+
+        if (self.timestep % query_frequency == 0) or (len(self.action_queue) == 0):
+            chunk = self._get_action_chunk(obs_dict=obs_dict, goal_dict=goal_dict)[0]
+
+            use_len = min(prediction_horizon, chunk.shape[0])
+            self.action_queue.clear()
+            self.action_queue.extend(chunk[:use_len])
+
+        action = self.action_queue.popleft().clamp(-1.0, 1.0)
+        self.timestep += 1
+        return action.unsqueeze(0)
+
+
+
+    def _get_action_chunk(self, obs_dict, goal_dict=None):
+        assert not self.nets.training
+
+        nets = self.nets
+
+        inputs = {"obs": obs_dict}
         for k in self.obs_shapes:
             if inputs["obs"][k].ndim - 1 == len(self.obs_shapes[k]):
                 inputs["obs"][k] = inputs["obs"][k].unsqueeze(1)
             assert inputs["obs"][k].ndim - 2 == len(self.obs_shapes[k])
-        obs_features = TensorUtils.time_distributed(inputs, self.nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
-        assert obs_features.ndim == 3  # [B, T, D]
-        obs_cond = obs_features.flatten(start_dim=1)        
 
+        obs_features = TensorUtils.time_distributed(inputs, nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
+        obs_cond = obs_features.flatten(start_dim=1)
 
-        action = self.nets["policy"]["kccvae_net"].sample_action(obs_cond)
-        return action
-
+        chunk = nets["policy"]["kccvae_net"].sample_action(obs_cond, return_chunk=True)
+        return chunk
 
 
     def reset(self):
-        # stateful policy면 필수
-        pass
+        self.action_check_done = False
+        self.action_queue = None
+        self.action_chunk_history = None
+        self.timestep = 0
 
     def log_info(self, info):
         # scalar logging 정리
         log = super(KCCVAEPolicy, self).log_info(info)
         log["Loss"] = info["losses"]["total"].item()
+        log["BC_Loss"] = info["losses"]["bc"].item()
+        log["KL_Loss"] = info["losses"]["kl"].item()
+        log["SupCon_Loss"] = info["losses"]["con"].item()
         
         return log
 

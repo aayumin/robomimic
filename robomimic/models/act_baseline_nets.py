@@ -473,8 +473,8 @@ class ACTBaselineNet(nn.Module):
 
 
 
-# # class ACTBaselineNet(nn.Module):
-# class ACTBaselineNet__old(nn.Module):
+# class ACTBaselineNet(nn.Module):
+# # class ACTBaselineNet__old(nn.Module):
 #     """
 #     Baseline ACT:
 #       cond = [z_img, z_q]

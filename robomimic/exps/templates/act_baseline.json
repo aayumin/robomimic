@@ -77,7 +77,7 @@
             "policy": {
                 "optimizer_type": "adamw",
                 "learning_rate": {
-                    "initial": 0.0002,
+                    "initial": 0.0001,
                     "decay_factor": 0.1,
                     "step_every_batch": true,
                     "scheduler_type": "cosine",
@@ -86,7 +86,8 @@
                     "epoch_schedule": []
                 },
                 "regularization": {
-                    "L2": 1e-06
+                    "L2": 1e-06,
+                    "max_grad_norm": 1.0
                 }
             }
         },

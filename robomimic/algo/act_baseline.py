@@ -112,6 +112,7 @@ class ACTBaselinePolicy(PolicyAlgo):
     def train_on_batch(self, batch, epoch, validate=False):
 
         B = batch["actions"].shape[0]
+        max_grad_norm = self.algo_config.optim_params.policy.regularization.max_grad_norm
 
         
         with TorchUtils.maybe_no_grad(no_grad=validate):
@@ -156,6 +157,7 @@ class ACTBaselinePolicy(PolicyAlgo):
                     net=self.nets,
                     optim=self.optimizers["policy"],
                     loss=loss,
+                    max_grad_norm=max_grad_norm,
                 )
                 
                 

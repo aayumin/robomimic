@@ -23,7 +23,7 @@ class KCCVAEConfig(BaseConfig):
         
         # optimization parameters
         self.algo.optim_params.policy.optimizer_type = "adamw"
-        self.algo.optim_params.policy.learning_rate.initial = 1e-4      # policy learning rate
+        self.algo.optim_params.policy.learning_rate.initial = 3e-4      # policy learning rate
         self.algo.optim_params.policy.learning_rate.decay_factor = 0.1  # factor to decay LR by (if epoch schedule non-empty)
         self.algo.optim_params.policy.learning_rate.step_every_batch = True
         self.algo.optim_params.policy.learning_rate.scheduler_type = "cosine"
@@ -32,10 +32,16 @@ class KCCVAEConfig(BaseConfig):
         self.algo.optim_params.policy.learning_rate.epoch_schedule = [] # epochs where LR decay occurs (used by "linear" and "multistep" schedulers)
         self.algo.optim_params.policy.learning_rate.do_not_lock_keys()
         self.algo.optim_params.policy.regularization.L2 = 1e-6          # L2 regularization strength
+        self.algo.optim_params.policy.regularization.max_grad_norm = 1.0
 
+        # loss weight
         self.algo.loss_weight.bc = 1.0
         self.algo.loss_weight.kl = 0.1
         self.algo.loss_weight.supcon = 0.1
+
+        # temporal_ensemble
+        self.algo.temporal_ensemble.enabled = True
+        self.algo.temporal_ensemble.alpha = 0.01
 
         # horizon parameters
         self.algo.horizon.observation_horizon = 2
