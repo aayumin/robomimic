@@ -258,7 +258,7 @@ class KeyframeMLP(nn.Module):
         self,
         obs_cond_dim: int,
         key_dim: int = 256,
-        hidden_dim: int | None = None,
+        hidden_dim: int = 256,
         num_layers: int = 3,
         dropout: float = 0.1,
     ):
@@ -310,6 +310,8 @@ class KeyframeMLP(nn.Module):
           mu    :   (B, key_dim)
           logvar:   (B, key_dim)
         """
+
+
         x = self.in_norm(obs_feat)
         h = self.backbone(x)
         mu = self.mu(h)

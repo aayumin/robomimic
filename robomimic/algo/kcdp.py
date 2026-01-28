@@ -43,14 +43,14 @@ def algo_config_to_class(algo_config):
     """
 
     if algo_config.unet.enabled:
-        return KCDPUNet, {}
+        return KCDPPolicy, {}
     elif algo_config.transformer.enabled:
         raise NotImplementedError()
     else:
         raise RuntimeError()
 
 
-class KCDPUNet(PolicyAlgo):
+class KCDPPolicy(PolicyAlgo):
     def _create_networks(self):
         """
         Creates networks and places them into @self.nets.
@@ -72,8 +72,11 @@ class KCDPUNet(PolicyAlgo):
         obs_dim = obs_encoder.output_shape()[0]
         key_dim = 256
 
+        ## phase
+        self.num_phases = 4
+
         # create network object
-        key_feature_net = KCDPNets.KeyframeMLP(obs_dim, key_dim=key_dim)
+        key_feature_net = KCDPNets.KeyframeMLP(obs_dim*self.algo_config.horizon.observation_horizon, key_dim=key_dim)
         noise_pred_net = KCDPNets.ConditionalUnet1D(
             input_dim=self.ac_dim,
             global_cond_dim=obs_dim*self.algo_config.horizon.observation_horizon + key_dim
@@ -145,6 +148,12 @@ class KCDPUNet(PolicyAlgo):
         input_batch["obs"] = {k: batch["obs"][k][:, :To, :] for k in batch["obs"]}
         input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
         input_batch["actions"] = batch["actions"][:, :Tp, :]
+
+
+        input_batch["index"] = batch.get("index", None) 
+        input_batch["index_in_demo"] = batch.get("index_in_demo", None) 
+        input_batch["phase"] = batch.get("phase", None) 
+
         
         # check if actions are normalized to [-1,1]
         if not self.action_check_done:
@@ -182,7 +191,7 @@ class KCDPUNet(PolicyAlgo):
         
         
         with TorchUtils.maybe_no_grad(no_grad=validate):
-            info = super(KCDPUNet, self).train_on_batch(batch, epoch, validate=validate)
+            info = super(KCDPPolicy, self).train_on_batch(batch, epoch, validate=validate)
             actions = batch["actions"]
             
             # encode obs
@@ -275,8 +284,10 @@ class KCDPUNet(PolicyAlgo):
         Returns:
             loss_log (dict): name -> summary statistic
         """
-        log = super(KCDPUNet, self).log_info(info)
-        log["Loss"] = info["losses"]["l2_loss"].item()
+        log = super(KCDPPolicy, self).log_info(info)
+        log["l2"] = info["losses"]["l2"].item()
+        log["kl"] = info["losses"]["kl"].item()
+        log["con"] = info["losses"]["con"].item()
         if "policy_grad_norms" in info:
             log["Policy_Grad_Norms"] = info["policy_grad_norms"]
         return log
