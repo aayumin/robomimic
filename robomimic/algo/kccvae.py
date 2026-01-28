@@ -278,9 +278,9 @@ class KCCVAEPolicy(PolicyAlgo):
         # scalar logging 정리
         log = super(KCCVAEPolicy, self).log_info(info)
         log["Loss"] = info["losses"]["total"].item()
-        log["BC_Loss"] = info["losses"]["bc"].item()
-        log["KL_Loss"] = info["losses"]["kl"].item()
-        log["SupCon_Loss"] = info["losses"]["con"].item()
+        log["Loss_bc"] = info["losses"]["bc"].item()
+        log["Loss_kl"] = info["losses"]["kl"].item()
+        log["Loss_supcon"] = info["losses"]["con"].item()
         
         return log
 

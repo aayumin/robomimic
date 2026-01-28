@@ -138,6 +138,7 @@ class ACTBaselinePolicy(PolicyAlgo):
             # print(actions.shape)   ##  (16, 16, 7)
             # print(pred.shape)  ##  (16, 16, 7)
 
+
             bc_loss = F.smooth_l1_loss(pred, actions)
             kl_loss = kl_divergence(mu, logvar)
             loss = bc_loss * self.algo_config.loss_weight.bc + kl_loss * self.algo_config.loss_weight.kl
@@ -249,8 +250,8 @@ class ACTBaselinePolicy(PolicyAlgo):
         # scalar logging 정리
         log = super(ACTBaselinePolicy, self).log_info(info)
         log["Loss"] = info["losses"]["total"].item()
-        log["BC_Loss"] = info["losses"]["bc"].item()
-        log["KL_Loss"] = info["losses"]["kl"].item()
+        log["Loss_bc"] = info["losses"]["bc"].item()
+        log["Loss_kl"] = info["losses"]["kl"].item()
         
         return log
 

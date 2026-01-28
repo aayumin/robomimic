@@ -23,7 +23,7 @@ class KCCVAEConfig(BaseConfig):
         
         # optimization parameters
         self.algo.optim_params.policy.optimizer_type = "adamw"
-        self.algo.optim_params.policy.learning_rate.initial = 3e-4      # policy learning rate
+        self.algo.optim_params.policy.learning_rate.initial = 1e-4      # policy learning rate
         self.algo.optim_params.policy.learning_rate.decay_factor = 0.1  # factor to decay LR by (if epoch schedule non-empty)
         self.algo.optim_params.policy.learning_rate.step_every_batch = True
         self.algo.optim_params.policy.learning_rate.scheduler_type = "cosine"
