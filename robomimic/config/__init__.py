@@ -13,4 +13,5 @@ from robomimic.config.td3_bc_config import TD3_BCConfig
 from robomimic.config.diffusion_policy_config import DiffusionPolicyConfig
 from robomimic.config.kccvae_config import KCCVAEConfig
 from robomimic.config.act_baseline_config import ACTBaselineConfig
+from robomimic.config.kcdp_config import KCDPConfig
 
