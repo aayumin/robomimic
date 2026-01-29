@@ -281,6 +281,7 @@ def run_rollout(
         video_writer=None,
         video_skip=5,
         terminate_on_success=False,
+        write_video=False,
     ):
     """
     Runs a rollout in an environment with the current network parameters.
@@ -352,9 +353,11 @@ def run_rollout(
                     success[k] = success[k] | cur_success_metrics[k]
 
             # visualization
-            if video_writer is not None:
+            # if video_writer is not None:
+            if video_writer is not None and write_video:
                 if video_count % video_skip == 0:
-                    frame = env.render(mode="rgb_array", height=512, width=512)
+                    # frame = env.render(mode="rgb_array", height=512, width=512)
+                    frame = env.render(mode="rgb_array", height=480, width=480)
                     video_frames.append(frame)
 
                 video_count += 1
@@ -399,6 +402,7 @@ def rollout_with_stats(
         epoch=None,
         video_skip=5,
         terminate_on_success=False,
+        write_video=False,
         verbose=False,
     ):
     """
@@ -488,6 +492,7 @@ def rollout_with_stats(
                 video_writer=env_video_writer,
                 video_skip=video_skip,
                 terminate_on_success=terminate_on_success,
+                write_video=write_video,
             )
             rollout_info["time"] = time.time() - rollout_timestamp
 

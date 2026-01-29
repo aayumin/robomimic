@@ -379,6 +379,7 @@ def train(config, device, resume=False):
                 action_normalization_stats=action_normalization_stats,
             )
 
+            write_video = True if epoch == config.train.num_epochs else False
             num_episodes = config.experiment.rollout.n
             all_rollout_logs, video_paths = TrainUtils.rollout_with_stats(
                 policy=rollout_model,
@@ -391,6 +392,7 @@ def train(config, device, resume=False):
                 epoch=epoch,
                 video_skip=config.experiment.get("video_skip", 5),
                 terminate_on_success=config.experiment.rollout.terminate_on_success,
+                write_video=write_video,
             )
 
             # summarize results from rollouts to tensorboard and terminal
