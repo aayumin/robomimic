@@ -92,7 +92,6 @@
         },
         "loss_weight": {
             "l2": 1.0,
-            "kl": 0.1,
             "supcon": 0.1
         },
         "horizon": {

@@ -65,16 +65,14 @@ class KCDPPolicy(PolicyAlgo):
         obs_encoder = replace_bn_with_gn(obs_encoder)
         
         obs_dim = obs_encoder.output_shape()[0]
-        key_dim = 256
 
         ## phase
         self.num_phases = 4
 
         # create network object
-        key_feature_net = KCDPNets.KeyframeMLP(obs_dim*self.algo_config.horizon.observation_horizon, key_dim=key_dim)
         noise_pred_net = KCDPNets.ConditionalUnet1D(
             input_dim=self.ac_dim,
-            global_cond_dim=obs_dim*self.algo_config.horizon.observation_horizon + key_dim
+            global_cond_dim=obs_dim*self.algo_config.horizon.observation_horizon
         )
 
         # the final arch has 2 parts
@@ -82,7 +80,6 @@ class KCDPPolicy(PolicyAlgo):
             "policy": nn.ModuleDict({
                 "obs_encoder": obs_encoder,
                 "noise_pred_net": noise_pred_net,
-                "key_feature_net": key_feature_net
             })
         })
 
@@ -200,48 +197,32 @@ class KCDPPolicy(PolicyAlgo):
             
             obs_features = TensorUtils.time_distributed(inputs, self.nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
             assert obs_features.ndim == 3  # [B, T, D]
-
             obs_cond = obs_features.flatten(start_dim=1)
 
-            # get keyframe features and concatenate
-            z_key, mu, logvar = self.nets["policy"]["key_feature_net"](obs_cond)  # [B, key_dim]  
-            phase = torch.clamp( (torch.clamp(batch["phase"], 0.0, 1.0) * self.num_phases).long(),   max=self.num_phases - 1) 
-            t = batch["index_in_demo"]
-            obs_cond = torch.cat([obs_cond, z_key], dim=-1)  # [B, obs_cond_dim + key_dim]
             
             # sample noise to add to actions
             noise = torch.randn(actions.shape, device=self.device)
-            
-            # sample a diffusion iteration for each data point
-            timesteps = torch.randint(
-                0, self.noise_scheduler.config.num_train_timesteps, 
-                (B,), device=self.device
-            ).long()
-            
-            # add noise to the clean actions according to the noise magnitude at each diffusion iteration
-            # (this is the forward diffusion process)
-            noisy_actions = self.noise_scheduler.add_noise(
-                actions, noise, timesteps)
+            timesteps = torch.randint(0, self.noise_scheduler.config.num_train_timesteps, (B,), device=self.device).long()
+            noisy_actions = self.noise_scheduler.add_noise(actions, noise, timesteps)
             
             # predict the noise residual
-            noise_pred = self.nets["policy"]["noise_pred_net"](
-                noisy_actions, timesteps, global_cond=obs_cond)
+            noise_pred = self.nets["policy"]["noise_pred_net"](noisy_actions, timesteps, global_cond=obs_cond)
             
             # L2 loss
             l2_loss = F.mse_loss(noise_pred, noise)
 
             # phase contrastive loss on keyframe features
-            con_loss = phase_contrastive_loss(z_latent=z_key, phase=phase, t=t, temperature=0.1, weak_weight=0.1, t_strong=2, t_weak=10)
+            # con_loss = phase_contrastive_loss(z_latent=z_key, phase=phase, t=t, temperature=0.1, weak_weight=0.1, t_strong=2, t_weak=10)
+            phase = torch.clamp( (torch.clamp(batch["phase"], 0.0, 1.0) * self.num_phases).long(),   max=self.num_phases - 1) 
+            t = batch["index_in_demo"]
+            con_loss = phase_contrastive_loss(z_latent=obs_cond, phase=phase, t=t, temperature=0.1, weak_weight=0.1, t_strong=2, t_weak=10)
 
-            # kl divergence for keyframe_feat
-            kl_loss = kl_divergence(mu=mu, logvar=logvar)   
 
 
             # logging
-            loss = l2_loss * self.algo_config.loss_weight.l2 + kl_loss * self.algo_config.loss_weight.kl + con_loss * self.algo_config.loss_weight.supcon
+            loss = l2_loss * self.algo_config.loss_weight.l2 + con_loss * self.algo_config.loss_weight.supcon
             losses = {
                 "l2": l2_loss,
-                "kl": kl_loss,
                 "con": con_loss,
                 "total": loss
             }
@@ -281,7 +262,6 @@ class KCDPPolicy(PolicyAlgo):
         """
         log = super(KCDPPolicy, self).log_info(info)
         log["l2"] = info["losses"]["l2"].item()
-        log["kl"] = info["losses"]["kl"].item()
         log["con"] = info["losses"]["con"].item()
         log["Loss"] = info["losses"]["total"].item()
         if "policy_grad_norms" in info:
@@ -513,13 +493,6 @@ def replace_bn_with_gn(
 #######################################################
 ##                Loss function
 #######################################################
-
-
-
-def kl_divergence(mu, logvar):
-    # standard normal prior
-    return 0.5 * torch.mean(torch.exp(logvar) + mu**2 - 1.0 - logvar)
-
 
 
 

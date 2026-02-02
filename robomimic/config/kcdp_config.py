@@ -61,7 +61,6 @@ class KCDPConfig(BaseConfig):
         
         # loss weight
         self.algo.loss_weight.l2 = 1.0
-        self.algo.loss_weight.kl = 0.1
         self.algo.loss_weight.supcon = 0.1
 
 
