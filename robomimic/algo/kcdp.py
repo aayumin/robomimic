@@ -23,11 +23,6 @@ import robomimic.utils.obs_utils as ObsUtils
 
 from robomimic.algo import register_algo_factory_func, PolicyAlgo
 
-import random
-import robomimic.utils.torch_utils as TorchUtils
-import robomimic.utils.tensor_utils as TensorUtils
-import robomimic.utils.obs_utils as ObsUtils
-
 
 @register_algo_factory_func("kcdp")
 def algo_config_to_class(algo_config):
@@ -288,6 +283,7 @@ class KCDPPolicy(PolicyAlgo):
         log["l2"] = info["losses"]["l2"].item()
         log["kl"] = info["losses"]["kl"].item()
         log["con"] = info["losses"]["con"].item()
+        log["Loss"] = info["losses"]["total"].item()
         if "policy_grad_norms" in info:
             log["Policy_Grad_Norms"] = info["policy_grad_norms"]
         return log
@@ -374,7 +370,7 @@ class KCDPPolicy(PolicyAlgo):
 
 
         # get keyframe features and concatenate
-        z_key, mu, logvar = self.nets["policy"]["key_feature_net"](obs_cond)  # [B, key_dim]
+        z_key, mu, logvar = self.nets["policy"]["key_feature_net"](obs_cond, sample=False)  # [B, key_dim]
         obs_cond = torch.cat([obs_cond, z_key], dim=-1)  # [B, obs_cond_dim + key_dim]
         
 

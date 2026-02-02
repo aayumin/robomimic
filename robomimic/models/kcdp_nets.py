@@ -4,7 +4,6 @@ from typing import Union
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 class SinusoidalPosEmb(nn.Module):
     def __init__(self, dim):
@@ -318,4 +317,5 @@ class KeyframeMLP(nn.Module):
         logvar = self.logvar(h)
 
         z_key = self.reparameterize(mu, logvar) if sample else mu
+        # z_key = mu + torch.exp(0.5 * logvar) if sample else mu
         return z_key, mu, logvar

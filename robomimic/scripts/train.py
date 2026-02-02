@@ -546,7 +546,7 @@ def main(args):
         # if rollouts are enabled, try 2 rollouts at end of each epoch, with 10 environment steps
         config.experiment.rollout.rate = 1
         config.experiment.rollout.n = 2
-        config.experiment.rollout.horizon = 10
+        config.experiment.rollout.horizon = 100
 
         # send output to a temporary directory
         config.train.output_dir = "/tmp/tmp_trained_models"
