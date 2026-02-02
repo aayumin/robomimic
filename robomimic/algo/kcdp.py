@@ -348,10 +348,6 @@ class KCDPPolicy(PolicyAlgo):
         # reshape observation to (B,obs_horizon*obs_dim)
         obs_cond = obs_features.flatten(start_dim=1)
 
-
-        # get keyframe features and concatenate
-        z_key, mu, logvar = self.nets["policy"]["key_feature_net"](obs_cond, sample=False)  # [B, key_dim]
-        obs_cond = torch.cat([obs_cond, z_key], dim=-1)  # [B, obs_cond_dim + key_dim]
         
 
         # initialize action from Guassian noise
