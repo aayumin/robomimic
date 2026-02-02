@@ -369,66 +369,60 @@ def train(config, device, resume=False):
 
         # Evaluate the model by by running rollouts
         # do rollouts at fixed rate or if it's time to save a new ckpt
-        try:
-            video_paths = None
-            rollout_check = (epoch % config.experiment.rollout.rate == 0) or (should_save_ckpt and ckpt_reason == "time")
-            if config.experiment.rollout.enabled and (epoch > config.experiment.rollout.warmstart) and rollout_check:
-                # wrap model as a RolloutPolicy to prepare for rollouts
-                rollout_model = RolloutPolicy(
-                    model,
-                    obs_normalization_stats=obs_normalization_stats,
-                    action_normalization_stats=action_normalization_stats,
-                )
+        video_paths = None
+        rollout_check = (epoch % config.experiment.rollout.rate == 0) or (should_save_ckpt and ckpt_reason == "time")
+        if config.experiment.rollout.enabled and (epoch > config.experiment.rollout.warmstart) and rollout_check:
+            # wrap model as a RolloutPolicy to prepare for rollouts
+            rollout_model = RolloutPolicy(
+                model,
+                obs_normalization_stats=obs_normalization_stats,
+                action_normalization_stats=action_normalization_stats,
+            )
 
-                write_video = True if epoch == config.train.num_epochs else False
-                num_episodes = config.experiment.rollout.n
-                all_rollout_logs, video_paths = TrainUtils.rollout_with_stats(
-                    policy=rollout_model,
-                    envs=envs,
-                    horizon=config.experiment.rollout.horizon,
-                    use_goals=config.use_goals,
-                    num_episodes=num_episodes,
-                    render=False,
-                    video_dir=video_dir if config.experiment.render_video else None,
-                    epoch=epoch,
-                    video_skip=config.experiment.get("video_skip", 5),
-                    terminate_on_success=config.experiment.rollout.terminate_on_success,
-                    write_video=write_video,
-                )
+            write_video = True if epoch == config.train.num_epochs else False
+            num_episodes = config.experiment.rollout.n
+            all_rollout_logs, video_paths = TrainUtils.rollout_with_stats(
+                policy=rollout_model,
+                envs=envs,
+                horizon=config.experiment.rollout.horizon,
+                use_goals=config.use_goals,
+                num_episodes=num_episodes,
+                render=False,
+                video_dir=video_dir if config.experiment.render_video else None,
+                epoch=epoch,
+                video_skip=config.experiment.get("video_skip", 5),
+                terminate_on_success=config.experiment.rollout.terminate_on_success,
+                write_video=write_video,
+            )
 
-                # summarize results from rollouts to tensorboard and terminal
-                for env_name in all_rollout_logs:
-                    rollout_logs = all_rollout_logs[env_name]
-                    for k, v in rollout_logs.items():
-                        if k.startswith("Time_"):
-                            data_logger.record("Timing_Stats/Rollout_{}_{}".format(env_name, k[5:]), v, epoch)
-                        else:
-                            data_logger.record("Rollout/{}/{}".format(k, env_name), v, epoch, log_stats=True)
+            # summarize results from rollouts to tensorboard and terminal
+            for env_name in all_rollout_logs:
+                rollout_logs = all_rollout_logs[env_name]
+                for k, v in rollout_logs.items():
+                    if k.startswith("Time_"):
+                        data_logger.record("Timing_Stats/Rollout_{}_{}".format(env_name, k[5:]), v, epoch)
+                    else:
+                        data_logger.record("Rollout/{}/{}".format(k, env_name), v, epoch, log_stats=True)
 
-                    print("\nEpoch {} Rollouts took {}s (avg) with results:".format(epoch, rollout_logs["time"]))
-                    print('Env: {}'.format(env_name))
-                    print(json.dumps(rollout_logs, sort_keys=True, indent=4))
+                print("\nEpoch {} Rollouts took {}s (avg) with results:".format(epoch, rollout_logs["time"]))
+                print('Env: {}'.format(env_name))
+                print(json.dumps(rollout_logs, sort_keys=True, indent=4))
 
-                # checkpoint and video saving logic
-                updated_stats = TrainUtils.should_save_from_rollout_logs(
-                    all_rollout_logs=all_rollout_logs,
-                    best_return=best_return,
-                    best_success_rate=best_success_rate,
-                    epoch_ckpt_name=epoch_ckpt_name,
-                    save_on_best_rollout_return=config.experiment.save.on_best_rollout_return,
-                    save_on_best_rollout_success_rate=config.experiment.save.on_best_rollout_success_rate,
-                )
-                best_return = updated_stats["best_return"]
-                best_success_rate = updated_stats["best_success_rate"]
-                epoch_ckpt_name = updated_stats["epoch_ckpt_name"]
-                should_save_ckpt = (config.experiment.save.enabled and updated_stats["should_save_ckpt"]) or should_save_ckpt
-                if updated_stats["ckpt_reason"] is not None:
-                    ckpt_reason = updated_stats["ckpt_reason"]
-                    
-        except Exception as e:
-            print("got error during rollouts at epoch {}: {}".format(epoch, e))
-            print("skipping rollouts for this epoch...")
-            traceback.print_exc()
+            # checkpoint and video saving logic
+            updated_stats = TrainUtils.should_save_from_rollout_logs(
+                all_rollout_logs=all_rollout_logs,
+                best_return=best_return,
+                best_success_rate=best_success_rate,
+                epoch_ckpt_name=epoch_ckpt_name,
+                save_on_best_rollout_return=config.experiment.save.on_best_rollout_return,
+                save_on_best_rollout_success_rate=config.experiment.save.on_best_rollout_success_rate,
+            )
+            best_return = updated_stats["best_return"]
+            best_success_rate = updated_stats["best_success_rate"]
+            epoch_ckpt_name = updated_stats["epoch_ckpt_name"]
+            should_save_ckpt = (config.experiment.save.enabled and updated_stats["should_save_ckpt"]) or should_save_ckpt
+            if updated_stats["ckpt_reason"] is not None:
+                ckpt_reason = updated_stats["ckpt_reason"]
 
         # get variable state for saving model
         variable_state = dict(

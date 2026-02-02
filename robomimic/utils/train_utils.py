@@ -354,26 +354,14 @@ def run_rollout(
                 for k in success:
                     success[k] = success[k] | cur_success_metrics[k]
 
-
-            # remove
-            video_writer = None   ##  don't save video when training.
-
-
             # visualization
-            if video_writer is not None and write_video:
+            if video_writer is not None:
                 if video_count % video_skip == 0:
                     if torch.cuda.is_available(): torch.cuda.synchronize()
-
                     frame = env.render(mode="rgb_array", height=512, width=512)
-                    frame = np.ascontiguousarray(frame)
+                    # frame = np.ascontiguousarray(frame)
                     video_frames.append(frame)
 
-                    ## remove
-                    if (video_count // video_skip) % 10 == 0:
-                        debug_dir = "/tmp/robomimic_frame_debug"
-                        os.makedirs(debug_dir, exist_ok=True)
-                        png_path = os.path.join(debug_dir, f"step{step_i:04d}_vc{video_count:06d}.png")
-                        imageio.imwrite(png_path, frame)
 
 
                 video_count += 1
