@@ -92,7 +92,7 @@
         },
         "loss_weight": {
             "l2": 1.0,
-            "supcon": 0.1
+            "supcon": 0.01
         },
         "horizon": {
             "observation_horizon": 2,

@@ -67,7 +67,7 @@ class KCDPPolicy(PolicyAlgo):
         obs_dim = obs_encoder.output_shape()[0]
 
         ## phase
-        self.num_phases = 4
+        self.num_phases = 8
 
         # create network object
         noise_pred_net = KCDPNets.ConditionalUnet1D(
@@ -232,10 +232,16 @@ class KCDPPolicy(PolicyAlgo):
 
             if not validate:
                 # gradient step
+                # policy_grad_norms = TorchUtils.backprop_for_loss(
+                #     net=self.nets,
+                #     optim=self.optimizers["policy"],
+                #     loss=loss,
+                # )
                 policy_grad_norms = TorchUtils.backprop_for_loss(
                     net=self.nets,
                     optim=self.optimizers["policy"],
                     loss=loss,
+                    max_grad_norm=1.0,
                 )
                 
                 # update Exponential Moving Average of the model weights
