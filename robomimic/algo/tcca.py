@@ -29,7 +29,7 @@ import robomimic.utils.tensor_utils as TensorUtils
 import robomimic.utils.obs_utils as ObsUtils
 
 
-@register_algo_factory_func("diffusion_policy")
+@register_algo_factory_func("tcca")
 def algo_config_to_class(algo_config):
     """
     Maps algo config to the BC algo class to instantiate, along with additional algo kwargs.

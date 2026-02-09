@@ -5,7 +5,7 @@ Config for Diffusion Policy algorithm.
 from robomimic.config.base_config import BaseConfig
 
 class TCCAConfig(BaseConfig):
-    ALGO_NAME = "diffusion_policy"
+    ALGO_NAME = "tcca"
 
     def train_config(self):
         """
