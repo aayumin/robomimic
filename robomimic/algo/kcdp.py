@@ -67,7 +67,7 @@ class KCDPPolicy(PolicyAlgo):
         obs_dim = obs_encoder.output_shape()[0]
 
         ## phase
-        self.num_phases = 8
+        self.num_phases = 4 # hardcoded for now, can be made configurable later
 
         # create network object
         noise_pred_net = KCDPNets.ConditionalUnet1D(
