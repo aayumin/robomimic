@@ -12,4 +12,4 @@ from robomimic.algo.td3_bc import TD3_BC
 from robomimic.algo.diffusion_policy import DiffusionPolicyUNet
 from robomimic.algo.kccvae import KCCVAEPolicy
 from robomimic.algo.act_baseline import ACTBaselinePolicy
-from robomimic.algo.kcdp import KCDPPolicy
+from robomimic.algo.tcca import TCCAPolicy
