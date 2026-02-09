@@ -182,6 +182,7 @@ class SequenceDataset(torch.utils.data.Dataset):
                 # "low-dim" since image observations require calls to getitem anyways.
                 print("SequenceDataset: caching get_item calls...")
                 self.getitem_cache = [self.get_item(i) for i in LogUtils.custom_tqdm(range(len(self)))]
+                
 
                 # don't need the previous cache anymore
                 del self.hdf5_cache
@@ -498,6 +499,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         for i in range(num_negative_samples - len(neg_indices)): 
             meta["negative_samples"].append(self.get_item(index))
             meta["negative_samples_padding"].append(1)
+        meta["negative_samples_padding"] = np.array(meta["negative_samples_padding"])
 
         return meta
 

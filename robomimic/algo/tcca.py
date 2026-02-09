@@ -248,28 +248,28 @@ class TCCAPolicy(PolicyAlgo):
 
             
             
-            # positive contrastive loss
-            pos_contrastive_losses = []
-            pos_contrastive_losses.append(F.cosine_similarity(obs_cond, action_features, dim=-1))  ## o_t,   a_t
-            valid = batch["prev_padding"] == 0
-            if valid.any(): pos_contrastive_losses.append(F.cosine_similarity(obs_cond[valid], prev_obs_cond[valid], dim=-1))   # o_t,   o_{t-1}
-            valid = batch["next_padding"] == 0
-            if valid.any(): pos_contrastive_losses.append(F.cosine_similarity(obs_cond[valid], next_obs_cond[valid], dim=-1))  # o_t,   o_{t+1}
+            # # positive contrastive loss
+            # pos_contrastive_losses = []
+            # pos_contrastive_losses.append(F.cosine_similarity(obs_cond, action_features, dim=-1))  ## o_t,   a_t
+            # valid = batch["prev_padding"] == 0
+            # if valid.any(): pos_contrastive_losses.append(F.cosine_similarity(obs_cond[valid], prev_obs_cond[valid], dim=-1))   # o_t,   o_{t-1}
+            # valid = batch["next_padding"] == 0
+            # if valid.any(): pos_contrastive_losses.append(F.cosine_similarity(obs_cond[valid], next_obs_cond[valid], dim=-1))  # o_t,   o_{t+1}
                 
 
-            # negative contrastive loss
-            neg_contrastive_losses = []
-            for i, (neg_obs_cond, neg_action_feat) in enumerate(zip(negative_obs_cond, negative_action_features)):
-                valid = batch["negative_samples_padding"][i] == 0
-                if valid.any(): 
-                    neg_contrastive_losses.append(F.cosine_similarity(obs_cond[valid], neg_obs_cond[valid], dim=-1))
-                    neg_contrastive_losses.append(F.cosine_similarity(obs_cond[valid], neg_action_feat[valid], dim=-1))
-            pos_contrastive_loss = torch.cat(pos_contrastive_losses).mean()
-            neg_contrastive_loss = torch.cat(neg_contrastive_losses).mean()
-            contrastive_loss = - pos_contrastive_loss + neg_contrastive_loss
+            # # negative contrastive loss
+            # neg_contrastive_losses = []
+            # for i, (neg_obs_cond, neg_action_feat) in enumerate(zip(negative_obs_cond, negative_action_features)):
+            #     valid = batch["negative_samples_padding"][i] == 0
+            #     if valid.any(): 
+            #         neg_contrastive_losses.append(F.cosine_similarity(obs_cond[valid], neg_obs_cond[valid], dim=-1))
+            #         neg_contrastive_losses.append(F.cosine_similarity(obs_cond[valid], neg_action_feat[valid], dim=-1))
+            # pos_contrastive_loss = torch.cat(pos_contrastive_losses).mean()
+            # neg_contrastive_loss = torch.cat(neg_contrastive_losses).mean()
+            # contrastive_loss = - pos_contrastive_loss + neg_contrastive_loss
             
-
-            
+            contrastive_loss = contrastive_margin_loss(obs_cond, action_features, prev_obs_cond, next_obs_cond, negative_obs_cond, negative_action_features, 
+                                                       batch["prev_padding"], batch["next_padding"], batch["negative_samples_padding"])
 
             # sample noise to add to actions
             noise = torch.randn(actions.shape, device=self.device)
@@ -309,6 +309,7 @@ class TCCAPolicy(PolicyAlgo):
                     net=self.nets,
                     optim=self.optimizers["policy"],
                     loss=loss,
+                    max_grad_norm = 1.0,
                 )
                 
                 # update Exponential Moving Average of the model weights
@@ -334,7 +335,9 @@ class TCCAPolicy(PolicyAlgo):
             loss_log (dict): name -> summary statistic
         """
         log = super(TCCAPolicy, self).log_info(info)
-        log["Loss"] = info["losses"]["l2_loss"].item()
+        log["L2"] = info["losses"]["l2_loss"].item()
+        log["Contrastive"] = info["losses"]["con_loss"].item()
+        log["Loss"] = info["losses"]["total_loss"].item()
         if "policy_grad_norms" in info:
             log["Policy_Grad_Norms"] = info["policy_grad_norms"]
         return log
@@ -545,3 +548,89 @@ def replace_bn_with_gn(
             num_channels=x.num_features)
     )
     return root_module
+
+
+
+
+## Loss
+
+def masked_cos_sim(a, b, mask):
+    """
+    a, b: (B, D)
+    mask: (B,) bool
+    return: (N_valid,) tensor
+    """
+    if mask is None:
+        return F.cosine_similarity(a, b, dim=-1)
+    if mask.any():
+        return F.cosine_similarity(a[mask], b[mask], dim=-1)
+    return None
+
+def contrastive_margin_loss(
+    obs_cond, action_features,
+    prev_obs_cond, next_obs_cond,
+    negative_obs_cond, negative_action_features,
+    prev_padding, next_padding, negative_samples_padding,
+    margin_pos=0.5,
+    margin_neg=0.2,
+):
+    """
+    prev_padding, next_padding: (B,) float/bool where 1 means padding
+    negative_samples_padding: (K,B) or (B,K) float/bool where 1 means padding
+    negative_obs_cond: list length K, each (B,D)
+    negative_action_features: list length K, each (B,D)
+    """
+
+    # make bool valid masks
+    valid_prev = (prev_padding == 0)
+    valid_next = (next_padding == 0)
+
+    pos_sims = []
+
+    # o_t vs a_t (always valid)
+    pos_sims.append(F.cosine_similarity(obs_cond, action_features, dim=-1))
+
+    s = masked_cos_sim(obs_cond, prev_obs_cond, valid_prev)
+    if s is not None:
+        pos_sims.append(s)
+
+    s = masked_cos_sim(obs_cond, next_obs_cond, valid_next)
+    if s is not None:
+        pos_sims.append(s)
+
+    # (N_pos,)
+    pos_sims = torch.cat(pos_sims, dim=0)
+
+    # hinge: push positives above margin_pos
+    pos_loss = F.relu(margin_pos - pos_sims).mean()
+
+    # negatives
+    neg_sims = []
+    K = len(negative_obs_cond)
+
+    # normalize padding shape to (K,B)
+    neg_pad = negative_samples_padding
+    if neg_pad.dim() == 2 and neg_pad.shape[0] != K and neg_pad.shape[1] == K:
+        neg_pad = neg_pad.transpose(0, 1)  # (K,B)
+
+    for i in range(K):
+        valid = (neg_pad[i] == 0)  # (B,)
+
+        s = masked_cos_sim(obs_cond, negative_obs_cond[i], valid)
+        if s is not None:
+            neg_sims.append(s)
+
+        s = masked_cos_sim(obs_cond, negative_action_features[i], valid)
+        if s is not None:
+            neg_sims.append(s)
+
+    if len(neg_sims) == 0:
+        # no valid negatives -> return pos_loss only
+        return pos_loss
+
+    neg_sims = torch.cat(neg_sims, dim=0)
+
+    # hinge: push negatives below margin_neg
+    neg_loss = F.relu(neg_sims - margin_neg).mean()
+
+    return pos_loss + neg_loss
