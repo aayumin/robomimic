@@ -323,7 +323,8 @@ def train(config, device, resume=False):
             epoch_check = (config.experiment.save.every_n_epochs is not None) and \
                 (epoch > 0) and (epoch % config.experiment.save.every_n_epochs == 0)
             epoch_list_check = (epoch in config.experiment.save.epochs)
-            should_save_ckpt = (time_check or epoch_check or epoch_list_check)
+            # should_save_ckpt = (time_check or epoch_check or epoch_list_check)
+            should_save_ckpt = False
         ckpt_reason = None
         if should_save_ckpt:
             last_ckpt_time = time.time()
