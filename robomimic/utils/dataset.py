@@ -572,6 +572,17 @@ class SequenceDataset(torch.utils.data.Dataset):
             # expand action shape if needed
             if len(ac.shape) == 1:
                 ac = ac.reshape(-1, 1)
+
+            ## insert pause action
+            if self.action_config[k].get("insert_pause", False):
+                original_length = ac.shape[0]
+                pause_start = np.random.randint(0, ac.shape[0])
+                pause_duration = np.random.randint(1, self.action_config[k].get("max_pause_duration", 5))
+                pause_action = np.ones((pause_duration, ac.shape[1]), dtype=ac.dtype) * ac[pause_start:pause_start+1]
+                ac = np.concatenate([ac[:pause_start], pause_action, ac[pause_start:]], axis=0)    
+                ac = ac[:original_length]  # trim to original length
+
+
             ac_dict[k] = ac
        
         # normalize actions
