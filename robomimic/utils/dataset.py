@@ -27,6 +27,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         action_keys,
         dataset_keys,
         action_config,
+        augmentation_config=None,
         frame_stack=1,
         seq_length=1,
         pad_frame_stack=True,
@@ -156,6 +157,9 @@ class SequenceDataset(torch.utils.data.Dataset):
             self.sampling_stride = sampling_cfg.get("stride", 1)
             self.sampling_min_negative_distance = sampling_cfg.get("min_negative_distance", 1)
             self.sampling_num_negative_samples = sampling_cfg.get("num_negative_samples", 1)
+
+        # augmentation config
+        self.augmentation_config = augmentation_config
 
 
         # maybe store dataset in memory for fast access
@@ -544,6 +548,19 @@ class SequenceDataset(torch.utils.data.Dataset):
             prefix="obs"
         )
 
+        # image augmentation (cutmix)
+        if self.augmentation_config is not None:
+            if "cutmix" in self.augmentation_config:
+                cutmix_cfg = self.augmentation_config["cutmix"]
+                if cutmix_cfg.get("enabled", False):
+                    apply_cutmix = False
+                    alpha = cutmix_cfg.get("alpha", 1.0)
+                    if np.random.rand() <= alpha:
+                        apply_cutmix = True
+                        meta["obs"] = ObsUtils.apply_cutmix_augmentation(meta["obs"], alpha=alpha)
+
+
+
         if self.load_next_obs:
             meta["next_obs"] = self.get_obs_sequence_from_demo(
                 demo_id,
@@ -584,6 +601,16 @@ class SequenceDataset(torch.utils.data.Dataset):
 
 
             ac_dict[k] = ac
+
+
+
+        # action augmentation (after cutmix)
+        if self.augmentation_config is not None:
+            if "cutmix" in self.augmentation_config:
+                cutmix_cfg = self.augmentation_config["cutmix"]
+                if cutmix_cfg.get("enabled", False) and apply_cutmix:
+                    ac_dict = ObsUtils.apply_augmentation_to_action_dict(ac_dict, "reverse")
+
        
         # normalize actions
         action_normalization_stats = self.get_action_normalization_stats()

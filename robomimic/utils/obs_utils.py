@@ -741,6 +741,22 @@ def sample_random_image_crops(images, crop_height, crop_width, num_crops, pos_en
     return crops, crop_inds
 
 
+def apply_cutmix_augmentation(observation, alpha):
+    print()
+    print(type(observation))
+    for k, v in observation.items():        
+        print(k, type(v), v.shape)
+    pass
+
+
+
+def apply_augmentation_to_action_dict(action_dict, augmentation_type: str):
+    for k, v in action_dict.items():
+        print(k, type(v), v.shape)
+    raise()
+    pass
+
+
 class Modality:
     """
     Observation Modality class to encapsulate necessary functions needed to
