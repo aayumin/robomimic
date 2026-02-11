@@ -309,7 +309,7 @@ class TCCAPolicy(PolicyAlgo):
                     net=self.nets,
                     optim=self.optimizers["policy"],
                     loss=loss,
-                    max_grad_norm = 1.0,
+                    # max_grad_norm = 1.0,
                 )
                 
                 # update Exponential Moving Average of the model weights
