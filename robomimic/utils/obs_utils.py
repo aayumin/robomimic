@@ -8,6 +8,7 @@ from collections import OrderedDict
 
 import torch
 import torch.nn.functional as F
+import cv2
 
 import robomimic.utils.tensor_utils as TU
 
@@ -741,20 +742,66 @@ def sample_random_image_crops(images, crop_height, crop_width, num_crops, pos_en
     return crops, crop_inds
 
 
-def apply_cutmix_augmentation(observation, alpha):
-    print()
-    print(type(observation))
-    for k, v in observation.items():        
-        print(k, type(v), v.shape)
-    pass
 
 
+def apply_cutout_augmentation(observation, mode="zero"):
+    """
+    observation: dict containing image sequences
+                 v shape = (T, H, W, C)
+    mode: "cutout" | "blur"
+    """
 
+    for k, v in observation.items():
+        if "image" not in k:
+            continue
+
+        out = v.copy()
+        T, H, W, _ = out.shape
+
+        rw = np.random.randint(1, W + 1)
+        rh = np.random.randint(1, H + 1)
+        x1 = np.random.randint(0, W - rw + 1)
+        y1 = np.random.randint(0, H - rh + 1)
+        x2, y2 = x1 + rw, y1 + rh
+
+        if mode == "zero":
+            out[:, y1:y2, x1:x2] = 0
+
+        elif mode == "blur":
+            for t in range(T):
+                patch = out[t, y1:y2, x1:x2]
+                patch = cv2.GaussianBlur(patch, (5, 5), 0)
+                out[t, y1:y2, x1:x2] = patch
+
+        observation[k] = out
+
+    return observation
+
+
+        
 def apply_augmentation_to_action_dict(action_dict, augmentation_type: str):
+    """
+    RoboMimic default (robosuite) control is typically delta-control:
+      action[t, :3] = delta position (dx, dy, dz)
+
+    Augmentation "reverse":
+      - reverse the delta motions: v[:, :3] *= -1
+      - orientation(3:6), gripper(6) unchanged
+    """
+    if augmentation_type != "reverse":
+        return action_dict
+
+    out_dict = {}
     for k, v in action_dict.items():
-        print(k, type(v), v.shape)
-    raise()
-    pass
+        if not isinstance(v, np.ndarray) or v.ndim != 2 or v.shape[1] < 3:
+            out_dict[k] = v
+            continue
+
+        out = v.copy()
+        out[:, :3] *= -1.0
+        out_dict[k] = out
+
+    return out_dict
 
 
 class Modality:

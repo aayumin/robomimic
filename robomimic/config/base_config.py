@@ -228,9 +228,10 @@ class BaseConfig(Config):
 
 
         self.train.augmentation = {
-            "cutmix": {
+            "cutout": {
                 "enabled": False,
                 "alpha": 0.2,
+                "blur_ratio": 0.5
             }
         }
 

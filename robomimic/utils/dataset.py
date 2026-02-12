@@ -123,6 +123,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         if self.action_keys is not None:
             self.dataset_keys = tuple(set(self.dataset_keys).union(set(self.action_keys)))
 
+
         self.action_config = action_config
 
         self.n_frame_stack = frame_stack
@@ -331,7 +332,8 @@ class SequenceDataset(torch.utils.data.Dataset):
             all_data[ep]["attrs"] = {}
             all_data[ep]["attrs"]["num_samples"] = hdf5_file["data/{}".format(ep)].attrs["num_samples"]
             # get obs
-            all_data[ep]["obs"] = {k: hdf5_file["data/{}/obs/{}".format(ep, k)][()] for k in obs_keys}
+            all_data[ep]["obs"] = {k: hdf5_file["data/{}/obs/{}".format(ep, k)][()] for k in obs_keys}        
+
             if load_next_obs:
                 all_data[ep]["next_obs"] = {k: hdf5_file["data/{}/next_obs/{}".format(ep, k)][()] for k in obs_keys}
             # get other dataset keys
@@ -548,16 +550,18 @@ class SequenceDataset(torch.utils.data.Dataset):
             prefix="obs"
         )
 
-        # image augmentation (cutmix)
-        if self.augmentation_config is not None:
-            if "cutmix" in self.augmentation_config:
-                cutmix_cfg = self.augmentation_config["cutmix"]
-                if cutmix_cfg.get("enabled", False):
-                    apply_cutmix = False
-                    alpha = cutmix_cfg.get("alpha", 1.0)
-                    if np.random.rand() <= alpha:
-                        apply_cutmix = True
-                        meta["obs"] = ObsUtils.apply_cutmix_augmentation(meta["obs"], alpha=alpha)
+        # image augmentation (cutout)
+        if self.augmentation_config is not None and "cutout" in self.augmentation_config:
+            cutout_cfg = self.augmentation_config["cutout"]
+            if cutout_cfg.get("enabled", False):
+                apply_cutout = False
+                alpha = cutout_cfg.get("alpha", 1.0)
+                if np.random.rand() <= alpha:
+                    apply_cutout = True
+                    if np.random.rand() <= cutout_cfg.get("blur_ratio", 0.5):
+                        meta["obs"] = ObsUtils.apply_cutout_augmentation(meta["obs"], "blur")
+                    else: 
+                        meta["obs"] = ObsUtils.apply_cutout_augmentation(meta["obs"], "zero")
 
 
 
@@ -604,11 +608,11 @@ class SequenceDataset(torch.utils.data.Dataset):
 
 
 
-        # action augmentation (after cutmix)
+        # action augmentation (after cutout)
         if self.augmentation_config is not None:
-            if "cutmix" in self.augmentation_config:
-                cutmix_cfg = self.augmentation_config["cutmix"]
-                if cutmix_cfg.get("enabled", False) and apply_cutmix:
+            if "cutout" in self.augmentation_config:
+                cutout_cfg = self.augmentation_config["cutout"]
+                if cutout_cfg.get("enabled", False) and apply_cutout:
                     ac_dict = ObsUtils.apply_augmentation_to_action_dict(ac_dict, "reverse")
 
        
@@ -670,7 +674,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         for k in keys:
             data = self.get_dataset_for_ep(demo_id, k)
             seq[k] = data[seq_begin_index: seq_end_index]
-
+    
         seq = TensorUtils.pad_sequence(seq, padding=(seq_begin_pad, seq_end_pad), pad_same=True)
         pad_mask = np.array([0] * seq_begin_pad + [1] * (seq_end_index - seq_begin_index) + [0] * seq_end_pad)
         pad_mask = pad_mask[:, None].astype(bool)
