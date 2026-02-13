@@ -609,11 +609,11 @@ class SequenceDataset(torch.utils.data.Dataset):
 
 
         # action augmentation (after cutout)
-        if self.augmentation_config is not None:
-            if "cutout" in self.augmentation_config:
-                cutout_cfg = self.augmentation_config["cutout"]
-                if cutout_cfg.get("enabled", False) and apply_cutout:
-                    ac_dict = ObsUtils.apply_augmentation_to_action_dict(ac_dict, "reverse")
+        # if self.augmentation_config is not None:
+        #     if "cutout" in self.augmentation_config:
+        #         cutout_cfg = self.augmentation_config["cutout"]
+        #         if cutout_cfg.get("enabled", False) and apply_cutout:
+        #             ac_dict = ObsUtils.apply_augmentation_to_action_dict(ac_dict, "reverse")
 
        
         # normalize actions
