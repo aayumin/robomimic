@@ -151,16 +151,23 @@ class TCCAPolicy(PolicyAlgo):
         input_batch["actions"] = batch["actions"][:, :Tp, :]
 
 
-        input_batch["prev"] = dict() 
-        input_batch["next"] = dict() 
-        input_batch["prev_padding"] = batch["prev_padding"]
-        input_batch["next_padding"] = batch["next_padding"]
-        input_batch["prev"]["obs"] = {k: batch["prev"]["obs"][k][:, :To, :] for k in batch["prev"]["obs"]}
-        input_batch["prev"]["goal_obs"] = batch["prev"].get("goal_obs", None)
-        input_batch["prev"]["actions"] = batch["prev"]["actions"][:, :Tp, :]
-        input_batch["next"]["obs"] = {k: batch["next"]["obs"][k][:, :To, :] for k in batch["next"]["obs"]}
-        input_batch["next"]["goal_obs"] = batch["next"].get("goal_obs", None)
-        input_batch["next"]["actions"] = batch["next"]["actions"][:, :Tp, :]
+        input_batch["positive_prev"] = dict() 
+        input_batch["positive_next"] = dict() 
+        input_batch["positive_prev_padding"] = batch["positive_prev_padding"]
+        input_batch["positive_next_padding"] = batch["positive_next_padding"]
+        input_batch["positive_prev"]["obs"] = {k: batch["positive_prev"]["obs"][k][:, :To, :] for k in batch["positive_prev"]["obs"]}
+        input_batch["positive_prev"]["goal_obs"] = batch["positive_prev"].get("goal_obs", None)
+        input_batch["positive_prev"]["actions"] = batch["positive_prev"]["actions"][:, :Tp, :]
+        input_batch["positive_next"]["obs"] = {k: batch["positive_next"]["obs"][k][:, :To, :] for k in batch["positive_next"]["obs"]}
+        input_batch["positive_next"]["goal_obs"] = batch["positive_next"].get("goal_obs", None)
+        input_batch["positive_next"]["actions"] = batch["positive_next"]["actions"][:, :Tp, :]
+
+
+        input_batch["gating_next"] = dict() 
+        input_batch["gating_next"]["obs"] = {k: batch["gating_next"]["obs"][k][:, :To, :] for k in batch["gating_next"]["obs"]}
+        input_batch["gating_next"]["goal_obs"] = batch["gating_next"].get("goal_obs", None)
+        input_batch["gating_next"]["actions"] = batch["gating_next"]["actions"][:, :Tp, :]
+
 
         input_batch["negative_samples"] = []
         input_batch["negative_samples_padding"] = batch["negative_samples_padding"]
@@ -214,8 +221,9 @@ class TCCAPolicy(PolicyAlgo):
 
             # encode
             inputs = {"obs": batch["obs"],"goal": batch["goal_obs"]}
-            prev_inputs = { "obs": batch["prev"]["obs"], "goal": batch["prev"]["goal_obs"]}
-            next_inputs = { "obs": batch["next"]["obs"], "goal": batch["next"]["goal_obs"]}
+            positive_prev_inputs = { "obs": batch["positive_prev"]["obs"], "goal": batch["positive_prev"]["goal_obs"]}
+            positive_next_inputs = { "obs": batch["positive_next"]["obs"], "goal": batch["positive_next"]["goal_obs"]}
+            gating_next_inputs = { "obs": batch["gating_next"]["obs"], "goal": batch["gating_next"]["goal_obs"]}
             negative_inputs = [{ "obs": batch["obs"], "goal": batch["goal_obs"]} for neg in batch["negative_samples"]]
 
             for k in self.obs_shapes:
@@ -228,13 +236,15 @@ class TCCAPolicy(PolicyAlgo):
             obs_cond = obs_features.flatten(start_dim=1)
             action_features = self.nets["policy"]["action_encoder"](batch["actions"].flatten(start_dim=1))
 
+
+
             # positive samples
-            prev_obs_features = TensorUtils.time_distributed(prev_inputs, self.nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
-            next_obs_features = TensorUtils.time_distributed(next_inputs, self.nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
-            prev_obs_cond = prev_obs_features.flatten(start_dim=1)
-            next_obs_cond = next_obs_features.flatten(start_dim=1)
-            prev_action_features = self.nets["policy"]["action_encoder"](batch["prev"]["actions"].flatten(start_dim=1))
-            next_action_features = self.nets["policy"]["action_encoder"](batch["next"]["actions"].flatten(start_dim=1))
+            positive_prev_obs_features = TensorUtils.time_distributed(positive_prev_inputs, self.nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
+            positive_next_obs_features = TensorUtils.time_distributed(positive_next_inputs, self.nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
+            positive_prev_obs_cond = positive_prev_obs_features.flatten(start_dim=1)
+            positive_next_obs_cond = positive_next_obs_features.flatten(start_dim=1)
+            positive_prev_action_features = self.nets["policy"]["action_encoder"](batch["positive_prev"]["actions"].flatten(start_dim=1))
+            positive_next_action_features = self.nets["policy"]["action_encoder"](batch["positive_next"]["actions"].flatten(start_dim=1))
 
             # negative samples
             negative_obs_cond = []
@@ -248,28 +258,8 @@ class TCCAPolicy(PolicyAlgo):
 
             
             
-            # # positive contrastive loss
-            # pos_contrastive_losses = []
-            # pos_contrastive_losses.append(F.cosine_similarity(obs_cond, action_features, dim=-1))  ## o_t,   a_t
-            # valid = batch["prev_padding"] == 0
-            # if valid.any(): pos_contrastive_losses.append(F.cosine_similarity(obs_cond[valid], prev_obs_cond[valid], dim=-1))   # o_t,   o_{t-1}
-            # valid = batch["next_padding"] == 0
-            # if valid.any(): pos_contrastive_losses.append(F.cosine_similarity(obs_cond[valid], next_obs_cond[valid], dim=-1))  # o_t,   o_{t+1}
-                
-
-            # # negative contrastive loss
-            # neg_contrastive_losses = []
-            # for i, (neg_obs_cond, neg_action_feat) in enumerate(zip(negative_obs_cond, negative_action_features)):
-            #     valid = batch["negative_samples_padding"][i] == 0
-            #     if valid.any(): 
-            #         neg_contrastive_losses.append(F.cosine_similarity(obs_cond[valid], neg_obs_cond[valid], dim=-1))
-            #         neg_contrastive_losses.append(F.cosine_similarity(obs_cond[valid], neg_action_feat[valid], dim=-1))
-            # pos_contrastive_loss = torch.cat(pos_contrastive_losses).mean()
-            # neg_contrastive_loss = torch.cat(neg_contrastive_losses).mean()
-            # contrastive_loss = - pos_contrastive_loss + neg_contrastive_loss
-            
-            contrastive_loss = contrastive_margin_loss(obs_cond, action_features, prev_obs_cond, next_obs_cond, negative_obs_cond, negative_action_features, 
-                                                       batch["prev_padding"], batch["next_padding"], batch["negative_samples_padding"])
+            contrastive_loss = contrastive_margin_loss(obs_cond, action_features, positive_prev_obs_cond, positive_next_obs_cond, negative_obs_cond, negative_action_features, 
+                                                       batch["positive_prev_padding"], batch["positive_next_padding"], batch["negative_samples_padding"])
 
             # sample noise to add to actions
             noise = torch.randn(actions.shape, device=self.device)
@@ -290,7 +280,8 @@ class TCCAPolicy(PolicyAlgo):
                 noisy_actions, timesteps, global_cond=obs_cond)
             
             # L2 loss
-            l2_loss = F.mse_loss(noise_pred, noise)
+            l2_loss = F.mse_loss(noise_pred, noise, reduction='none')
+            l2_loss = l2_loss.flatten(start_dim=1).mean(dim=1)
 
             if "aux_decay" in self.algo_config.loss_weight:
                 if self.algo_config.loss_weight.aux_decay.func == "linear":
@@ -301,13 +292,34 @@ class TCCAPolicy(PolicyAlgo):
             else:
                 contrastive_loss_weight = self.algo_config.loss_weight.con
 
+            # total loss (B, )
             loss = self.algo_config.loss_weight.l2 * l2_loss +  contrastive_loss_weight * contrastive_loss
 
+            # similarity based temporal loss gating
+            if "similarity_based_temporal_gating" in self.algo_config:
+                gating_next_obs_features = TensorUtils.time_distributed(gating_next_inputs, self.nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
+                gating_next_obs_cond = gating_next_obs_features.flatten(start_dim=1)
+                sim_gating_score = F.cosine_similarity(obs_cond, gating_next_obs_cond, dim=-1)
             
+                threshold_low = self.algo_config.similarity_based_temporal_gating.loss_decay_policy.lower_threshold
+                threshold_high = self.algo_config.similarity_based_temporal_gating.loss_decay_policy.upper_threshold
+                sim_gating_loss_weight = 1.0 - (sim_gating_score - threshold_low) / (threshold_high - threshold_low)
+                sim_gating_loss_weight = torch.clamp(sim_gating_loss_weight, min=0.0, max=1.0)
+                loss = (loss * sim_gating_loss_weight)
+
+            # total mean loss (scalar)
+            loss = loss.mean()
+            l2_loss = l2_loss.mean()
+            contrastive_loss = contrastive_loss.mean()
+            sim_gating_loss_weight = sim_gating_loss_weight.mean()
+            
+
+
             # logging
             losses = {
                 "l2_loss": l2_loss,
                 "con_loss": contrastive_loss,
+                "sim_gating_loss_weight": sim_gating_loss_weight,
                 "total_loss": loss
             }
             info["losses"] = TensorUtils.detach(losses)
@@ -567,13 +579,12 @@ def masked_cos_sim(a, b, mask):
     """
     a, b: (B, D)
     mask: (B,) bool
-    return: (N_valid,) tensor
+    return: (B,) tensor (유효하지 않은 곳은 0.0)
     """
-    if mask is None:
-        return F.cosine_similarity(a, b, dim=-1)
-    if mask.any():
-        return F.cosine_similarity(a[mask], b[mask], dim=-1)
-    return None
+    sim = F.cosine_similarity(a, b, dim=-1)
+    if mask is None: return sim
+    return sim * mask.float()
+
 
 def contrastive_margin_loss(
     obs_cond, action_features,
@@ -583,63 +594,36 @@ def contrastive_margin_loss(
     margin_pos=0.5,
     margin_neg=0.2,
 ):
-    """
-    prev_padding, next_padding: (B,) float/bool where 1 means padding
-    negative_samples_padding: (K,B) or (B,K) float/bool where 1 means padding
-    negative_obs_cond: list length K, each (B,D)
-    negative_action_features: list length K, each (B,D)
-    """
-
-    # make bool valid masks
     valid_prev = (prev_padding == 0)
     valid_next = (next_padding == 0)
 
     pos_sims = []
-
-    # o_t vs a_t (always valid)
+    # (B,)
     pos_sims.append(F.cosine_similarity(obs_cond, action_features, dim=-1))
+    pos_sims.append(masked_cos_sim(obs_cond, prev_obs_cond, valid_prev))
+    pos_sims.append(masked_cos_sim(obs_cond, next_obs_cond, valid_next))
 
-    s = masked_cos_sim(obs_cond, prev_obs_cond, valid_prev)
-    if s is not None:
-        pos_sims.append(s)
+    # (3, B) -> (B,) by averaging over positive types
+    pos_sims_stacked = torch.stack(pos_sims, dim=0)
+    pos_loss = F.relu(margin_pos - pos_sims_stacked).mean(dim=0)
 
-    s = masked_cos_sim(obs_cond, next_obs_cond, valid_next)
-    if s is not None:
-        pos_sims.append(s)
-
-    # (N_pos,)
-    pos_sims = torch.cat(pos_sims, dim=0)
-
-    # hinge: push positives above margin_pos
-    pos_loss = F.relu(margin_pos - pos_sims).mean()
-
-    # negatives
     neg_sims = []
     K = len(negative_obs_cond)
-
-    # normalize padding shape to (K,B)
     neg_pad = negative_samples_padding
     if neg_pad.dim() == 2 and neg_pad.shape[0] != K and neg_pad.shape[1] == K:
-        neg_pad = neg_pad.transpose(0, 1)  # (K,B)
+        neg_pad = neg_pad.transpose(0, 1)
 
     for i in range(K):
-        valid = (neg_pad[i] == 0)  # (B,)
-
-        s = masked_cos_sim(obs_cond, negative_obs_cond[i], valid)
-        if s is not None:
-            neg_sims.append(s)
-
-        s = masked_cos_sim(obs_cond, negative_action_features[i], valid)
-        if s is not None:
-            neg_sims.append(s)
+        valid = (neg_pad[i] == 0)
+        neg_sims.append(masked_cos_sim(obs_cond, negative_obs_cond[i], valid))
+        neg_sims.append(masked_cos_sim(obs_cond, negative_action_features[i], valid))
 
     if len(neg_sims) == 0:
-        # no valid negatives -> return pos_loss only
         return pos_loss
 
-    neg_sims = torch.cat(neg_sims, dim=0)
-
-    # hinge: push negatives below margin_neg
-    neg_loss = F.relu(neg_sims - margin_neg).mean()
+    # (2*K, B) -> (B,)
+    neg_sims_stacked = torch.stack(neg_sims, dim=0)
+    neg_loss = F.relu(neg_sims_stacked - margin_neg).mean(dim=0)
 
     return pos_loss + neg_loss
+

@@ -42,6 +42,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         lang=None,
         demo_limit=None,
         sampling_cfg=None,
+        sim_gating_cfg=None,
     ):
         """
         Dataset class for fetching sequences of experience.
@@ -151,6 +152,12 @@ class SequenceDataset(torch.utils.data.Dataset):
 
         # prepare for action normalization
         self.action_normalization_stats = None
+
+        # sim gating config
+        self.sim_gating_cfg = sim_gating_cfg
+        if self.sim_gating_cfg is not None:
+            self.sim_gating_stride = sim_gating_cfg.get("temporal_stride", 1)
+            
 
         # sampling config
         self.sampling_cfg = sampling_cfg
@@ -457,7 +464,10 @@ class SequenceDataset(torch.utils.data.Dataset):
         Fetch dataset sequence @index (inferred through internal index map), using the getitem_cache if available.
         """
         if self.sampling_cfg is not None:
-            return self.get_item_with_sampling(index)
+            if self.sim_gating_cfg is not None:
+                return self.get_item_with_sampling_and_gating(index)
+            else:
+                return self.get_item_with_sampling(index)
 
 
         if self.hdf5_cache_mode == "all":
@@ -467,6 +477,55 @@ class SequenceDataset(torch.utils.data.Dataset):
 
         return output
     
+
+    def get_item_with_sampling_and_gating(self, index):
+
+        sampling_stride = self.sampling_stride
+        min_negative_distance = self.sampling_min_negative_distance
+        num_negative_samples = self.sampling_num_negative_samples
+        next_stride = self.sim_gating_stride
+
+
+        # get item
+        meta = self.get_item(index)
+
+        demo_id = self._index_to_demo_id[index]
+        demo_start_index = self._demo_id_to_start_indices[demo_id]
+        demo_length = self._demo_id_to_demo_length[demo_id]
+
+        # next sample for comparison (t,  t + N)
+        gating_next_index = min(index + next_stride, demo_start_index + demo_length - 1)
+        meta["gating_next"] = self.get_item(gating_next_index)
+        meta["gating_next_padding"] = 0 if gating_next_index != index else 1
+
+
+        # positive samples
+        prev_index = None
+        next_index = None
+        if index - sampling_stride >= demo_start_index: prev_index = index - sampling_stride
+        if index + sampling_stride < demo_start_index + demo_length: next_index = index + sampling_stride
+        meta["positive_prev_padding"] = 0 if prev_index is not None else 1
+        meta["positive_next_padding"] = 0 if next_index is not None else 1
+        meta["positive_prev"] = self.get_item(prev_index) if prev_index is not None else self.get_item(index)
+        meta["positive_next"] = self.get_item(next_index) if next_index is not None else self.get_item(index)
+
+        # negative samples
+        meta["negative_samples"] = []
+        meta["negative_samples_padding"] = []
+        candidates = np.concatenate([np.arange(demo_start_index, index - min_negative_distance),np.arange(index + min_negative_distance + 1, demo_start_index + demo_length)])
+        num_negative_samples = min(num_negative_samples, len(candidates))
+        neg_indices = np.random.choice(candidates, size=num_negative_samples, replace=False)
+        for i in neg_indices: 
+            meta["negative_samples"].append(self.get_item(i))
+            meta["negative_samples_padding"].append(0)
+        for i in range(num_negative_samples - len(neg_indices)): 
+            meta["negative_samples"].append(self.get_item(index))
+            meta["negative_samples_padding"].append(1)
+        meta["negative_samples_padding"] = np.array(meta["negative_samples_padding"])
+    
+        return meta
+    
+
 
     def get_item_with_sampling(self, index):
 
@@ -488,10 +547,10 @@ class SequenceDataset(torch.utils.data.Dataset):
         next_index = None
         if index - sampling_stride >= demo_start_index: prev_index = index - sampling_stride
         if index + sampling_stride < demo_start_index + demo_length: next_index = index + sampling_stride
-        meta["prev_padding"] = 0 if prev_index is not None else 1
-        meta["next_padding"] = 0 if next_index is not None else 1
-        meta["prev"] = self.get_item(prev_index) if prev_index is not None else self.get_item(index)
-        meta["next"] = self.get_item(next_index) if next_index is not None else self.get_item(index)
+        meta["positive_prev_padding"] = 0 if prev_index is not None else 1
+        meta["positive_next_padding"] = 0 if next_index is not None else 1
+        meta["positive_prev"] = self.get_item(prev_index) if prev_index is not None else self.get_item(index)
+        meta["positive_next"] = self.get_item(next_index) if next_index is not None else self.get_item(index)
 
         # negative samples
         meta["negative_samples"] = []

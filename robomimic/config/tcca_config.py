@@ -47,11 +47,20 @@ class TCCAConfig(BaseConfig):
         ## loss weight
         self.algo.loss_weight.l2 = 1.0          # weight for L2 loss
         self.algo.loss_weight.con = 0.1         # weight for contrastive loss
+        self.algo.loss_weight.aux_decay.func = "linear"
+        self.algo.loss_weight.aux_decay.epochs = 1000
 
         ## sampling parameters
         self.algo.sampling.stride = 4                     # stride between sampled timesteps
         self.algo.sampling.min_negative_distance = 8      # minimum distance between positive and negative samples
         self.algo.sampling.num_negative_samples = 1       # number of negative
+
+        # similarity based temporal gating
+
+        self.algo.similarity_based_temporal_gating.temporal_stride = 1
+        self.algo.similarity_based_temporal_gating.loss_decay_policy.lower_threshold = 0.5
+        self.algo.similarity_based_temporal_gating.loss_decay_policy.upper_threshold = 0.9
+
 
         # horizon parameters
         self.algo.horizon.observation_horizon = 2
