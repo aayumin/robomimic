@@ -296,7 +296,8 @@ class TCCAPolicy(PolicyAlgo):
             loss = self.algo_config.loss_weight.l2 * l2_loss +  contrastive_loss_weight * contrastive_loss
 
             # similarity based temporal loss gating
-            if "similarity_based_temporal_gating" in self.algo_config:
+            sim_gating_loss_weight = torch.ones(B,)
+            if "similarity_based_temporal_gating" in self.algo_config and epoch > self.algo_config.similarity_based_temporal_gating.start_epoch:
                 gating_next_obs_features = TensorUtils.time_distributed(gating_next_inputs, self.nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
                 gating_next_obs_cond = gating_next_obs_features.flatten(start_dim=1)
                 sim_gating_score = F.cosine_similarity(obs_cond, gating_next_obs_cond, dim=-1)
@@ -358,6 +359,7 @@ class TCCAPolicy(PolicyAlgo):
         log = super(TCCAPolicy, self).log_info(info)
         log["L2"] = info["losses"]["l2_loss"].item()
         log["Contrastive"] = info["losses"]["con_loss"].item()
+        log["SimGating_w"] = info["losses"]["sim_gating_loss_weight"].item()
         log["Loss"] = info["losses"]["total_loss"].item()
         if "policy_grad_norms" in info:
             log["Policy_Grad_Norms"] = info["policy_grad_norms"]

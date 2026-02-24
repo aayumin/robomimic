@@ -56,8 +56,8 @@ class TCCAConfig(BaseConfig):
         self.algo.sampling.num_negative_samples = 1       # number of negative
 
         # similarity based temporal gating
-
         self.algo.similarity_based_temporal_gating.temporal_stride = 1
+        self.algo.similarity_based_temporal_gating.start_epoch = 500
         self.algo.similarity_based_temporal_gating.loss_decay_policy.lower_threshold = 0.5
         self.algo.similarity_based_temporal_gating.loss_decay_policy.upper_threshold = 0.9
 
