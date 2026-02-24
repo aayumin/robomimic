@@ -292,7 +292,16 @@ class TCCAPolicy(PolicyAlgo):
             # L2 loss
             l2_loss = F.mse_loss(noise_pred, noise)
 
-            loss = self.algo_config.loss_weight.l2 * l2_loss +  self.algo_config.loss_weight.con * contrastive_loss
+            if "aux_decay" in self.algo_config.loss_weight:
+                if self.algo_config.loss_weight.aux_decay.func == "linear":
+                    contrastive_loss_weight = self.algo_config.loss_weight.con
+                    contrastive_loss_weight = contrastive_loss_weight * float(max(0, self.algo_config.loss_weight.aux_decay.epochs - epoch) / self.algo_config.loss_weight.aux_decay.epochs)
+                else:
+                    raise()
+            else:
+                contrastive_loss_weight = self.algo_config.loss_weight.con
+
+            loss = self.algo_config.loss_weight.l2 * l2_loss +  contrastive_loss_weight * contrastive_loss
 
             
             # logging
