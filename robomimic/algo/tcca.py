@@ -68,7 +68,6 @@ class TCCAPolicy(PolicyAlgo):
         # replace all BatchNorm with GroupNorm to work with EMA
         # performance will tank if you forget to do this!
         obs_encoder = replace_bn_with_gn(obs_encoder)
-        
         obs_dim = obs_encoder.output_shape()[0]
 
         # create network object
@@ -151,6 +150,7 @@ class TCCAPolicy(PolicyAlgo):
         input_batch["actions"] = batch["actions"][:, :Tp, :]
 
 
+
         input_batch["positive_prev"] = dict() 
         input_batch["positive_next"] = dict() 
         input_batch["positive_prev_padding"] = batch["positive_prev_padding"]
@@ -178,7 +178,6 @@ class TCCAPolicy(PolicyAlgo):
             neg_sample["actions"] = neg["actions"][:, :Tp, :]
             input_batch["negative_samples"].append(neg_sample)
 
-        
         # check if actions are normalized to [-1,1]
         if not self.action_check_done:
             actions = input_batch["actions"]
@@ -230,12 +229,9 @@ class TCCAPolicy(PolicyAlgo):
                 # first two dimensions should be [B, T] for inputs
                 assert inputs["obs"][k].ndim - 2 == len(self.obs_shapes[k])
 
-
-
             obs_features = TensorUtils.time_distributed(inputs, self.nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
             obs_cond = obs_features.flatten(start_dim=1)
             action_features = self.nets["policy"]["action_encoder"](batch["actions"].flatten(start_dim=1))
-
 
 
             # positive samples

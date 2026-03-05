@@ -236,7 +236,6 @@ class Algo(object):
         # we will search the nested batch dictionary for the following special batch dict keys
         # and apply the processing function to their values (which correspond to observations)
         obs_keys = ["obs", "next_obs", "goal_obs"]
-
         def recurse_helper(d):
             """
             Apply process_obs_dict to values in nested dictionary d that match a key in obs_keys.
@@ -251,6 +250,9 @@ class Algo(object):
                 elif isinstance(d[k], dict):
                     # search down into dictionary
                     recurse_helper(d[k])
+                elif isinstance(d[k], list):
+                    # search down into list
+                    for dd in d[k]: recurse_helper(dd)
 
         recurse_helper(batch)
         return batch
