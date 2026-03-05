@@ -224,7 +224,7 @@ class TCCAPolicy(PolicyAlgo):
             positive_prev_inputs = { "obs": batch["positive_prev"]["obs"], "goal": batch["positive_prev"]["goal_obs"]}
             positive_next_inputs = { "obs": batch["positive_next"]["obs"], "goal": batch["positive_next"]["goal_obs"]}
             gating_next_inputs = { "obs": batch["gating_next"]["obs"], "goal": batch["gating_next"]["goal_obs"]}
-            negative_inputs = [{ "obs": batch["obs"], "goal": batch["goal_obs"]} for neg in batch["negative_samples"]]
+            negative_inputs = [{ "obs": neg["obs"], "goal": neg["goal_obs"]} for neg in batch["negative_samples"]]
 
             for k in self.obs_shapes:
                 # first two dimensions should be [B, T] for inputs

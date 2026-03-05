@@ -147,6 +147,10 @@ def main(args):
         dst_data_group = dst.create_group("data")
 
 
+        for name, value in src["data"].attrs.items():
+            dst_data_group.attrs[name] = value
+
+
         for demo_key, demo_data in tqdm(src["data"].items()):
             demo_sub_group = dst_data_group.create_group(demo_key)
 
@@ -154,9 +158,10 @@ def main(args):
             new_demo = process_demo(demo_copy, min_len, max_len, min_iter, max_iter)
             save_all_data(demo_sub_group, new_demo)
 
+            for name, value in demo_data.attrs.items():
+                demo_sub_group.attrs[name] = value
+
     print(f"All tasks completed. New file: {new_path}")
-
-
 
 
 
@@ -171,4 +176,5 @@ if __name__ == "__main__":
     parser.add_argument("--min_iter",type=int, default = 1, help="min number of pause insertion in a single episode")
     parser.add_argument("--max_iter",type=int, default = 5, help="max number of pause insertion in a single episode")
     args = parser.parse_args()
+
     main(args)
