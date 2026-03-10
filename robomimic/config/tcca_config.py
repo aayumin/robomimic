@@ -57,7 +57,8 @@ class TCCAConfig(BaseConfig):
 
         # similarity based temporal gating
         self.algo.similarity_based_temporal_gating.temporal_stride = 1
-        self.algo.similarity_based_temporal_gating.start_epoch = 500
+        # self.algo.similarity_based_temporal_gating.start_epoch = 500
+        self.algo.similarity_based_temporal_gating.start_epoch = 5000000
         self.algo.similarity_based_temporal_gating.loss_decay_policy.lower_threshold = 0.5
         self.algo.similarity_based_temporal_gating.loss_decay_policy.upper_threshold = 0.9
 

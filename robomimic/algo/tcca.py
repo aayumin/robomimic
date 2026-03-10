@@ -126,6 +126,10 @@ class TCCAPolicy(PolicyAlgo):
         self.action_check_done = False
         self.obs_queue = None
         self.action_queue = None
+
+
+        ## remove
+        self.dbg_print = 0
     
     def process_batch_for_training(self, batch):
         """
@@ -291,9 +295,20 @@ class TCCAPolicy(PolicyAlgo):
             # total loss (B, )
             loss = self.algo_config.loss_weight.l2 * l2_loss +  contrastive_loss_weight * contrastive_loss
 
+
+            ## remove
+            # self.dbg_print += 1
+            # if self.dbg_print % 10 == 0:
+            #     print(f"l2_weight: {self.algo_config.loss_weight.l2},  l2: {l2_loss}")
+            #     print(f"con_weight: {contrastive_loss_weight},  contra: {contrastive_loss}")
+            #     print(f"[EPOCH: {epoch}]  total: {loss}")
+            #     print("=========================================")
+
+
             # similarity based temporal loss gating
             sim_gating_loss_weight = torch.ones(B,)
             if "similarity_based_temporal_gating" in self.algo_config and epoch > self.algo_config.similarity_based_temporal_gating.start_epoch:
+
                 gating_next_obs_features = TensorUtils.time_distributed(gating_next_inputs, self.nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
                 gating_next_obs_cond = gating_next_obs_features.flatten(start_dim=1)
                 sim_gating_score = F.cosine_similarity(obs_cond, gating_next_obs_cond, dim=-1)
@@ -573,16 +588,6 @@ def replace_bn_with_gn(
 
 ## Loss
 
-def masked_cos_sim(a, b, mask):
-    """
-    a, b: (B, D)
-    mask: (B,) bool
-    return: (B,) tensor (유효하지 않은 곳은 0.0)
-    """
-    sim = F.cosine_similarity(a, b, dim=-1)
-    if mask is None: return sim
-    return sim * mask.float()
-
 
 def contrastive_margin_loss(
     obs_cond, action_features,
@@ -592,36 +597,57 @@ def contrastive_margin_loss(
     margin_pos=0.5,
     margin_neg=0.2,
 ):
-    valid_prev = (prev_padding == 0)
-    valid_next = (next_padding == 0)
+    valid_prev = (prev_padding == 0).view(-1).float()   # (B,)
+    valid_next = (next_padding == 0).view(-1).float()   # (B,)
 
-    pos_sims = []
-    # (B,)
-    pos_sims.append(F.cosine_similarity(obs_cond, action_features, dim=-1))
-    pos_sims.append(masked_cos_sim(obs_cond, prev_obs_cond, valid_prev))
-    pos_sims.append(masked_cos_sim(obs_cond, next_obs_cond, valid_next))
+    # --------------------
+    # positive loss
+    # invalid positive는 평균에서 제외
+    # --------------------
+    pos_losses = []
 
-    # (3, B) -> (B,) by averaging over positive types
-    pos_sims_stacked = torch.stack(pos_sims, dim=0)
-    pos_loss = F.relu(margin_pos - pos_sims_stacked).mean(dim=0)
+    sim_cur = F.cosine_similarity(obs_cond, action_features, dim=-1)   # (B,)
+    pos_losses.append(F.relu(margin_pos - sim_cur))
 
-    neg_sims = []
+    sim_prev = F.cosine_similarity(obs_cond, prev_obs_cond, dim=-1)    # (B,)
+    pos_losses.append(F.relu(margin_pos - sim_prev) * valid_prev)
+    sim_next = F.cosine_similarity(obs_cond, next_obs_cond, dim=-1)    # (B,)
+    pos_losses.append(F.relu(margin_pos - sim_next) * valid_next)
+
+    pos_losses = torch.stack(pos_losses, dim=0)  # (3, B)
+    pos_valid_count = 1.0 + valid_prev + valid_next   # (B,)
+    pos_loss = pos_losses.sum(dim=0) / pos_valid_count.clamp(min=1.0)  # (B,)
+
+    # --------------------
+    # negative loss
+    # invalid negative는 평균에서 제외
+    # --------------------
     K = len(negative_obs_cond)
-    neg_pad = negative_samples_padding
-    if neg_pad.dim() == 2 and neg_pad.shape[0] != K and neg_pad.shape[1] == K:
-        neg_pad = neg_pad.transpose(0, 1)
-
-    for i in range(K):
-        valid = (neg_pad[i] == 0)
-        neg_sims.append(masked_cos_sim(obs_cond, negative_obs_cond[i], valid))
-        neg_sims.append(masked_cos_sim(obs_cond, negative_action_features[i], valid))
-
-    if len(neg_sims) == 0:
+    if K == 0:
         return pos_loss
 
-    # (2*K, B) -> (B,)
-    neg_sims_stacked = torch.stack(neg_sims, dim=0)
-    neg_loss = F.relu(neg_sims_stacked - margin_neg).mean(dim=0)
+    neg_pad = negative_samples_padding
+    if neg_pad.dim() == 2 and neg_pad.shape[0] != K and neg_pad.shape[1] == K:
+        neg_pad = neg_pad.transpose(0, 1)   # (B, K) -> (K, B)
+
+    neg_losses = []
+    neg_valids = []
+
+    for i in range(K):
+        valid = (neg_pad[i] == 0).view(-1).float()   # (B,)
+
+        sim_neg_obs = F.cosine_similarity(obs_cond, negative_obs_cond[i], dim=-1)
+        sim_neg_act = F.cosine_similarity(obs_cond, negative_action_features[i], dim=-1)
+
+        neg_losses.append(F.relu(sim_neg_obs - margin_neg) * valid)
+        neg_losses.append(F.relu(sim_neg_act - margin_neg) * valid)
+
+        neg_valids.append(valid)
+        neg_valids.append(valid)
+
+    neg_losses = torch.stack(neg_losses, dim=0)   # (2K, B)
+    neg_valids = torch.stack(neg_valids, dim=0)   # (2K, B)
+
+    neg_loss = neg_losses.sum(dim=0) / neg_valids.sum(dim=0).clamp(min=1.0)  # (B,)
 
     return pos_loss + neg_loss
-
