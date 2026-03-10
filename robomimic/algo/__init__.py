@@ -13,3 +13,4 @@ from robomimic.algo.diffusion_policy import DiffusionPolicyUNet
 from robomimic.algo.kccvae import KCCVAEPolicy
 from robomimic.algo.act_baseline import ACTBaselinePolicy
 from robomimic.algo.tcca import TCCAPolicy
+from robomimic.algo.drcan import DRCANPolicy

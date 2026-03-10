@@ -12,6 +12,7 @@ from robomimic.config.iris_config import IRISConfig
 from robomimic.config.td3_bc_config import TD3_BCConfig
 from robomimic.config.diffusion_policy_config import DiffusionPolicyConfig
 from robomimic.config.tcca_config import TCCAConfig
+from robomimic.config.drcan_config import DRCANConfig
 from robomimic.config.kccvae_config import KCCVAEConfig
 from robomimic.config.act_baseline_config import ACTBaselineConfig
 
