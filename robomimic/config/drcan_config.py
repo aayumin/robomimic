@@ -51,6 +51,13 @@ class DRCANConfig(BaseConfig):
         self.algo.loss_weight.aux_decay.epochs = 1000
 
 
+        ## DRCAN
+        self.algo.drcan.proj_dim = 128
+        self.algo.drcan.hidden_dim = 1024 
+        self.algo.drcan.temperature = 0.1
+        self.algo.drcan.timestep_weight_mode = "mid"
+
+
 
         # horizon parameters
         self.algo.horizon.observation_horizon = 2
