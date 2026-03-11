@@ -217,8 +217,9 @@ class DiffusionPolicyUNet(PolicyAlgo):
 
             # L2 loss with importance_score weight
             importance_score = batch["importance_score"]
-            w = 0.1 + 0.9 * importance_score
-            loss = (F.mse_loss(noise_pred, noise, reduction="none").mean(-1) * w).sum() / w.sum()
+            w = 1.0 + 0.5 * importance_score
+            mse = F.mse_loss(noise_pred, noise, reduction="none")
+            loss = (mse.mean(-1) * w).sum() / w.sum()
 
 
             # L2 loss
@@ -226,7 +227,8 @@ class DiffusionPolicyUNet(PolicyAlgo):
             
             # logging
             losses = {
-                "l2_loss": loss,
+                "l2_loss": mse.mean(),
+                "total_loss": loss,
                 "IS_mean" : importance_score.mean()
             }
             info["losses"] = TensorUtils.detach(losses)
@@ -262,7 +264,8 @@ class DiffusionPolicyUNet(PolicyAlgo):
             loss_log (dict): name -> summary statistic
         """
         log = super(DiffusionPolicyUNet, self).log_info(info)
-        log["Loss"] = info["losses"]["l2_loss"].item()
+        log["L2_Loss"] = info["losses"]["l2_loss"].item()
+        log["Total_Loss"] = info["losses"]["total_loss"].item()
         log["IS_weight_mean"] = info["losses"]["IS_mean"].item()
         if "policy_grad_norms" in info:
             log["Policy_Grad_Norms"] = info["policy_grad_norms"]
