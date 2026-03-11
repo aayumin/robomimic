@@ -229,7 +229,7 @@ class DiffusionPolicyUNet(PolicyAlgo):
             losses = {
                 "l2_loss": mse.mean(),
                 "total_loss": loss,
-                "IS_mean" : importance_score.mean()
+                "IS_mean" : w.mean()
             }
             info["losses"] = TensorUtils.detach(losses)
 
