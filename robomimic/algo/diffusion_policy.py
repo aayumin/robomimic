@@ -141,7 +141,8 @@ class DiffusionPolicyUNet(PolicyAlgo):
         input_batch["obs"] = {k: batch["obs"][k][:, :To, :] for k in batch["obs"]}
         input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
         input_batch["actions"] = batch["actions"][:, :Tp, :]
-        
+        input_batch["importance_score"] = batch["importance_score"][:, :Tp]
+
         # check if actions are normalized to [-1,1]
         if not self.action_check_done:
             actions = input_batch["actions"]
@@ -213,12 +214,20 @@ class DiffusionPolicyUNet(PolicyAlgo):
             noise_pred = self.nets["policy"]["noise_pred_net"](
                 noisy_actions, timesteps, global_cond=obs_cond)
             
+
+            # L2 loss with importance_score weight
+            importance_score = batch["importance_score"]
+            w = 0.1 + 0.9 * importance_score
+            loss = (F.mse_loss(noise_pred, noise, reduction="none").mean(-1) * w).sum() / w.sum()
+
+
             # L2 loss
-            loss = F.mse_loss(noise_pred, noise)
+            # loss = F.mse_loss(noise_pred, noise)
             
             # logging
             losses = {
-                "l2_loss": loss
+                "l2_loss": loss,
+                "IS_mean" : importance_score.mean()
             }
             info["losses"] = TensorUtils.detach(losses)
 
@@ -254,6 +263,7 @@ class DiffusionPolicyUNet(PolicyAlgo):
         """
         log = super(DiffusionPolicyUNet, self).log_info(info)
         log["Loss"] = info["losses"]["l2_loss"].item()
+        log["IS_weight_mean"] = info["losses"]["IS_mean"].item()
         if "policy_grad_norms" in info:
             log["Policy_Grad_Norms"] = info["policy_grad_norms"]
         return log
