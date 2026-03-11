@@ -472,8 +472,6 @@ class SequenceDataset(torch.utils.data.Dataset):
     
 
 
-
-
     def get_item(self, index):
         """
         Main implementation of getitem when not using cache.
@@ -499,6 +497,7 @@ class SequenceDataset(torch.utils.data.Dataset):
             seq_length=self.seq_length
         )
 
+
         # determine goal index
         goal_index = None
         if self.goal_mode == "last":
@@ -512,20 +511,6 @@ class SequenceDataset(torch.utils.data.Dataset):
             seq_length=self.seq_length,
             prefix="obs"
         )
-
-        # image augmentation (cutout)
-        if self.augmentation_config is not None and "cutout" in self.augmentation_config:
-            cutout_cfg = self.augmentation_config["cutout"]
-            if cutout_cfg.get("enabled", False):
-                apply_cutout = False
-                alpha = cutout_cfg.get("alpha", 1.0)
-                if np.random.rand() <= alpha:
-                    apply_cutout = True
-                    if np.random.rand() <= cutout_cfg.get("blur_ratio", 0.5):
-                        meta["obs"] = ObsUtils.apply_cutout_augmentation(meta["obs"], "blur")
-                    else: 
-                        meta["obs"] = ObsUtils.apply_cutout_augmentation(meta["obs"], "zero")
-
 
 
         if self.load_next_obs:
@@ -548,7 +533,7 @@ class SequenceDataset(torch.utils.data.Dataset):
                 prefix="next_obs",
             )
             meta["goal_obs"] = {k: goal[k][0] for k in goal}  # remove sequence dimension for goal
-
+        
         # get action components
         ac_dict = OrderedDict()
         for k in self.action_keys:
@@ -556,8 +541,7 @@ class SequenceDataset(torch.utils.data.Dataset):
             # expand action shape if needed
             if len(ac.shape) == 1:
                 ac = ac.reshape(-1, 1)
-
-
+            ac_dict[k] = ac
 
        
         # normalize actions
