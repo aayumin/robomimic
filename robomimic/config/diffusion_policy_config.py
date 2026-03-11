@@ -43,6 +43,9 @@ class DiffusionPolicyConfig(BaseConfig):
         self.algo.optim_params.policy.learning_rate.do_not_lock_keys()
         self.algo.optim_params.policy.regularization.L2 = 1e-6          # L2 regularization strength
 
+        # importance score
+        self.algo.importance_score.enabled = False
+        
         # horizon parameters
         self.algo.horizon.observation_horizon = 2
         self.algo.horizon.action_horizon = 8

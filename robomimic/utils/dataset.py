@@ -463,13 +463,6 @@ class SequenceDataset(torch.utils.data.Dataset):
         """
         Fetch dataset sequence @index (inferred through internal index map), using the getitem_cache if available.
         """
-        if self.sampling_cfg is not None:
-            if self.sim_gating_cfg is not None:
-                return self.get_item_with_sampling_and_gating(index)
-            else:
-                return self.get_item_with_sampling(index)
-
-
         if self.hdf5_cache_mode == "all":
             output = self.getitem_cache[index]
         else:
@@ -478,95 +471,6 @@ class SequenceDataset(torch.utils.data.Dataset):
         return output
     
 
-    def get_item_with_sampling_and_gating(self, index):
-
-        sampling_stride = self.sampling_stride
-        min_negative_distance = self.sampling_min_negative_distance
-        num_negative_samples = self.sampling_num_negative_samples
-        next_stride = self.sim_gating_stride
-
-
-        # get item
-        meta = self.get_item(index)
-
-        demo_id = self._index_to_demo_id[index]
-        demo_start_index = self._demo_id_to_start_indices[demo_id]
-        demo_length = self._demo_id_to_demo_length[demo_id]
-
-        # next sample for comparison (t,  t + N)
-        gating_next_index = min(index + next_stride, demo_start_index + demo_length - 1)
-        meta["gating_next"] = self.get_item(gating_next_index)
-        meta["gating_next_padding"] = 0 if gating_next_index != index else 1
-
-
-        # positive samples
-        prev_index = None
-        next_index = None
-        if index - sampling_stride >= demo_start_index: prev_index = index - sampling_stride
-        if index + sampling_stride < demo_start_index + demo_length: next_index = index + sampling_stride
-        meta["positive_prev_padding"] = 0 if prev_index is not None else 1
-        meta["positive_next_padding"] = 0 if next_index is not None else 1
-        meta["positive_prev"] = self.get_item(prev_index) if prev_index is not None else self.get_item(index)
-        meta["positive_next"] = self.get_item(next_index) if next_index is not None else self.get_item(index)
-
-        # negative samples
-        meta["negative_samples"] = []
-        meta["negative_samples_padding"] = []
-        candidates = np.concatenate([np.arange(demo_start_index, index - min_negative_distance),np.arange(index + min_negative_distance + 1, demo_start_index + demo_length)])
-        num_negative_samples = min(num_negative_samples, len(candidates))
-        neg_indices = np.random.choice(candidates, size=num_negative_samples, replace=False)
-        for i in neg_indices: 
-            meta["negative_samples"].append(self.get_item(i))
-            meta["negative_samples_padding"].append(0)
-        for i in range(num_negative_samples - len(neg_indices)): 
-            meta["negative_samples"].append(self.get_item(index))
-            meta["negative_samples_padding"].append(1)
-        meta["negative_samples_padding"] = np.array(meta["negative_samples_padding"])
-    
-        return meta
-    
-
-
-    def get_item_with_sampling(self, index):
-
-        sampling_stride = self.sampling_stride
-        min_negative_distance = self.sampling_min_negative_distance
-        num_negative_samples = self.sampling_num_negative_samples
-
-
-        # get item
-        meta = self.get_item(index)
-
-        demo_id = self._index_to_demo_id[index]
-        demo_start_index = self._demo_id_to_start_indices[demo_id]
-        demo_length = self._demo_id_to_demo_length[demo_id]
-
-
-        # positive samples
-        prev_index = None
-        next_index = None
-        if index - sampling_stride >= demo_start_index: prev_index = index - sampling_stride
-        if index + sampling_stride < demo_start_index + demo_length: next_index = index + sampling_stride
-        meta["positive_prev_padding"] = 0 if prev_index is not None else 1
-        meta["positive_next_padding"] = 0 if next_index is not None else 1
-        meta["positive_prev"] = self.get_item(prev_index) if prev_index is not None else self.get_item(index)
-        meta["positive_next"] = self.get_item(next_index) if next_index is not None else self.get_item(index)
-
-        # negative samples
-        meta["negative_samples"] = []
-        meta["negative_samples_padding"] = []
-        candidates = np.concatenate([np.arange(demo_start_index, index - min_negative_distance),np.arange(index + min_negative_distance + 1, demo_start_index + demo_length)])
-        num_negative_samples = min(num_negative_samples, len(candidates))
-        neg_indices = np.random.choice(candidates, size=num_negative_samples, replace=False)
-        for i in neg_indices: 
-            meta["negative_samples"].append(self.get_item(i))
-            meta["negative_samples_padding"].append(0)
-        for i in range(num_negative_samples - len(neg_indices)): 
-            meta["negative_samples"].append(self.get_item(index))
-            meta["negative_samples_padding"].append(1)
-        meta["negative_samples_padding"] = np.array(meta["negative_samples_padding"])
-
-        return meta
 
 
 
@@ -653,26 +557,7 @@ class SequenceDataset(torch.utils.data.Dataset):
             if len(ac.shape) == 1:
                 ac = ac.reshape(-1, 1)
 
-            ## insert pause action
-            if self.action_config[k].get("insert_pause", False):
-                original_length = ac.shape[0]
-                pause_start = np.random.randint(0, ac.shape[0])
-                pause_duration = np.random.randint(1, self.action_config[k].get("max_pause_duration", 5))
-                pause_action = np.ones((pause_duration, ac.shape[1]), dtype=ac.dtype) * ac[pause_start:pause_start+1]
-                ac = np.concatenate([ac[:pause_start], pause_action, ac[pause_start:]], axis=0)    
-                ac = ac[:original_length]  # trim to original length
 
-
-            ac_dict[k] = ac
-
-
-
-        # action augmentation (after cutout)
-        # if self.augmentation_config is not None:
-        #     if "cutout" in self.augmentation_config:
-        #         cutout_cfg = self.augmentation_config["cutout"]
-        #         if cutout_cfg.get("enabled", False) and apply_cutout:
-        #             ac_dict = ObsUtils.apply_augmentation_to_action_dict(ac_dict, "reverse")
 
        
         # normalize actions

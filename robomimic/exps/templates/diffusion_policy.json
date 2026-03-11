@@ -90,6 +90,9 @@
                 }
             }
         },
+        "importance_score":{
+            "enabled": false
+        },
         "horizon": {
             "observation_horizon": 2,
             "action_horizon": 8,
