@@ -141,7 +141,8 @@ class DiffusionPolicyUNet(PolicyAlgo):
         input_batch["obs"] = {k: batch["obs"][k][:, :To, :] for k in batch["obs"]}
         input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
         input_batch["actions"] = batch["actions"][:, :Tp, :]
-        input_batch["importance_score"] = batch["importance_score"][:, :Tp]
+        if self.algo_config.importance_score.enabled:
+            input_batch["importance_score"] = batch["importance_score"][:, :Tp]
 
         # check if actions are normalized to [-1,1]
         if not self.action_check_done:
@@ -216,21 +217,25 @@ class DiffusionPolicyUNet(PolicyAlgo):
             
 
             # L2 loss with importance_score weight
-            importance_score = batch["importance_score"]
-            w = 1.0 + 0.5 * importance_score
-            mse = F.mse_loss(noise_pred, noise, reduction="none")
-            loss = (mse.mean(-1) * w).sum() / w.sum()
+            if self.algo_config.importance_score.enabled:
+                importance_score = batch["importance_score"]
+                w = 1.0 + 0.5 * importance_score
+                mse = F.mse_loss(noise_pred, noise, reduction="none")
+                loss = (mse.mean(-1) * w).sum() / w.sum()
 
-
-            # L2 loss
-            # loss = F.mse_loss(noise_pred, noise)
+                losses = {
+                    "L2": mse.mean(),
+                    "Loss": loss,
+                    "IS_weight_mean" : w.mean()
+                }
+            else:
+                # L2 loss
+                loss = F.mse_loss(noise_pred, noise)
+                losses = {
+                    "Loss": loss,
+                }
             
-            # logging
-            losses = {
-                "l2_loss": mse.mean(),
-                "total_loss": loss,
-                "IS_mean" : w.mean()
-            }
+            
             info["losses"] = TensorUtils.detach(losses)
 
             if not validate:
@@ -264,9 +269,11 @@ class DiffusionPolicyUNet(PolicyAlgo):
             loss_log (dict): name -> summary statistic
         """
         log = super(DiffusionPolicyUNet, self).log_info(info)
-        log["L2_Loss"] = info["losses"]["l2_loss"].item()
-        log["Total_Loss"] = info["losses"]["total_loss"].item()
-        log["IS_weight_mean"] = info["losses"]["IS_mean"].item()
+        for k, v in info["losses"].items():
+            log[k] = v.item()
+        # log["L2"] = info["losses"]["l2_loss"].item()
+        # log["Loss"] = info["losses"]["total_loss"].item()
+        # log["IS_weight_mean"] = info["losses"]["IS_mean"].item()
         if "policy_grad_norms" in info:
             log["Policy_Grad_Norms"] = info["policy_grad_norms"]
         return log
