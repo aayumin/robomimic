@@ -98,11 +98,7 @@
         },
         "loss_weight": {
             "l2": 1.0,
-            "con": 0.1,
-            "aux_decay": {
-                "func": "linear",
-                "epochs": 1000
-            }
+            "con": 1.0
         },
         "horizon": {
             "observation_horizon": 2,

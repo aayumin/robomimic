@@ -287,6 +287,7 @@ class DRCANPolicy(PolicyAlgo):
             losses = {
                 "l2_loss": l2_loss,
                 "con_loss": contrastive_loss,
+                "contrastive_loss_weight": torch.tensor(contrastive_loss_weight),
                 "total_loss": loss
             }
             info["losses"] = TensorUtils.detach(losses)
@@ -325,6 +326,7 @@ class DRCANPolicy(PolicyAlgo):
         log = super(DRCANPolicy, self).log_info(info)
         log["L2"] = info["losses"]["l2_loss"].item()
         log["Contrastive"] = info["losses"]["con_loss"].item()
+        log["contrastive_loss_weight"] = info["losses"]["contrastive_loss_weight"].item()
         log["Loss"] = info["losses"]["total_loss"].item()
         if "policy_grad_norms" in info:
             log["Policy_Grad_Norms"] = info["policy_grad_norms"]
