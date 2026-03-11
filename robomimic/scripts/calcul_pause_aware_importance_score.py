@@ -1,5 +1,6 @@
 import h5py
 import argparse
+import imageio
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
 from tqdm import tqdm
@@ -13,9 +14,12 @@ def normalize(x):
     return x
 
 
-def compute_action_magnitude(actions):
-    return np.linalg.norm(actions, axis=1)
 
+def compute_action_change(actions):
+    diff = actions[1:] - actions[:-1]
+    mag = np.linalg.norm(diff, axis=1)
+    mag = np.concatenate([mag, mag[-1:]])
+    return mag
 
 def compute_obs_change(obs):
     diff = obs[1:] - obs[:-1]
@@ -25,7 +29,7 @@ def compute_obs_change(obs):
 
 
 def compute_importance(actions, obs):
-    action_mag = compute_action_magnitude(actions)
+    action_mag = compute_action_change(actions)
     obs_change = compute_obs_change(obs)
 
     action_mag = normalize(action_mag)
@@ -66,6 +70,26 @@ def save_all_data(group, data_dict):
             group.create_dataset(key, data=value, compression="gzip")
 
 
+
+def save_video(video_data, filename, fps=10):
+    # video_data: (len, h, w, 3)
+    imageio.mimwrite(filename, video_data, fps=fps, codec='libx264')
+
+
+
+def visualize_importance_score(demo):
+
+    epi_len, H, W, _ = demo["obs"]["agentview_image"].shape
+    canvas = np.zeros((epi_len, H + 20, W, 3))
+    canvas[:,:H, :, :] = demo["obs"]["agentview_image"]
+    canvas[:,H:, :, 0] = demo["importance_score"].reshape((-1, 1, 1)) * 255.0
+
+    canvas = np.array(canvas, dtype=np.uint8)
+    save_video(canvas, "viz_importance_score.mp4")
+
+
+
+
 def process_demo(demo):
 
     actions = demo["actions"][:]
@@ -96,6 +120,10 @@ def process_dataset():
 
             demo_copy = load_all_data(demo_data)
             new_demo = process_demo(demo_copy)
+
+            ## remove
+            if demo_key == "demo_0": visualize_importance_score(new_demo)
+
             save_all_data(demo_sub_group, new_demo)
             for name, value in demo_data.attrs.items():
                 demo_sub_group.attrs[name] = value
