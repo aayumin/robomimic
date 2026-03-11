@@ -72,7 +72,7 @@ def process_dataset():
             weight = normalize(weight)
 
             demo_out.create_dataset(
-                "gsiw_weight",
+                "importance_weight",
                 data=weight.astype(np.float32),
                 compression="gzip"
             )
