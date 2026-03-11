@@ -34,6 +34,7 @@ def compute_importance(actions, obs):
     score = ALPHA * action_mag + BETA * obs_change
     score = 1 / (1 + np.exp(-score))
 
+
     return score
 
 
@@ -71,9 +72,10 @@ def process_demo(demo):
     obs = demo["obs"]["robot0_eef_pos"][:]
 
     importance = compute_importance(actions, obs)
+
     weight = gmm_smooth(importance)
     weight = normalize(weight)
-    demo["importance_weight"] = weight
+    demo["importance_score"] = weight
 
     return demo
 
@@ -95,10 +97,8 @@ def process_dataset():
             demo_copy = load_all_data(demo_data)
             new_demo = process_demo(demo_copy)
             save_all_data(demo_sub_group, new_demo)
-
             for name, value in demo_data.attrs.items():
                 demo_sub_group.attrs[name] = value
-
     print(f"All tasks completed. New file: {OUTPUT_PATH}")
 
 
