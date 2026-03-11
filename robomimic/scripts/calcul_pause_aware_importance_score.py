@@ -41,42 +41,65 @@ def gmm_smooth(score):
     return gaussian_filter1d(score, sigma=SMOOTH_SIGMA)
 
 
+
+def load_all_data(obj):
+    """
+    HDF5 객체(Group 또는 Dataset)를 재귀적으로 탐색하여 
+    전체 구조를 Python Dict와 Numpy Array로 변환합니다.
+    """
+    if isinstance(obj, h5py.Dataset):
+        return obj[:] 
+    
+    elif isinstance(obj, h5py.Group):
+        return {k: load_all_data(v) for k, v in obj.items()}
+    
+    return obj
+
+
+def save_all_data(group, data_dict):
+    for key, value in data_dict.items():
+        if isinstance(value, dict):
+            sub_group = group.create_group(key)
+            save_all_data(sub_group, value)
+        else:
+            group.create_dataset(key, data=value, compression="gzip")
+
+
+def process_demo(demo):
+
+    actions = demo["actions"][:]
+    obs = demo["obs"]["robot0_eef_pos"][:]
+
+    importance = compute_importance(actions, obs)
+    weight = gmm_smooth(importance)
+    weight = normalize(weight)
+    demo["importance_weight"] = weight
+
+    return demo
+
+
 def process_dataset():
-    with h5py.File(INPUT_PATH, "r") as fin, h5py.File(OUTPUT_PATH, "w") as fout:
 
-        fin.copy("mask", fout)
+    with h5py.File(INPUT_PATH, "r") as src, h5py.File(OUTPUT_PATH, "w") as dst:
+        src.copy("mask", dst)
+        dst_data_group = dst.create_group("data")
 
-        data_group = fout.create_group("data")
+        for name, value in src["data"].attrs.items():
+            dst_data_group.attrs[name] = value
 
-        for demo_key in tqdm(fin["data"].keys()):
 
-            # print("processing", demo_key)
 
-            demo_in = fin["data"][demo_key]
-            demo_out = data_group.create_group(demo_key)
+        for demo_key, demo_data in tqdm(src["data"].items()):
+            demo_sub_group = dst_data_group.create_group(demo_key)
 
-            for k in demo_in.keys():
-                if k != "obs":
-                    demo_in.copy(k, demo_out)
+            demo_copy = load_all_data(demo_data)
+            new_demo = process_demo(demo_copy)
+            save_all_data(demo_sub_group, new_demo)
 
-            obs_group = demo_out.create_group("obs")
-            for k in demo_in["obs"].keys():
-                demo_in["obs"].copy(k, obs_group)
+            for name, value in demo_data.attrs.items():
+                demo_sub_group.attrs[name] = value
 
-            actions = demo_in["actions"][:]
-            obs = demo_in["obs"]["robot0_eef_pos"][:]
-
-            importance = compute_importance(actions, obs)
-            weight = gmm_smooth(importance)
-
-            weight = normalize(weight)
-
-            demo_out.create_dataset(
-                "importance_weight",
-                data=weight.astype(np.float32),
-                compression="gzip"
-            )
-
+    print(f"All tasks completed. New file: {OUTPUT_PATH}")
 
 
 
