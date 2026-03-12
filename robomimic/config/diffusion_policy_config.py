@@ -45,6 +45,8 @@ class DiffusionPolicyConfig(BaseConfig):
 
         # importance score
         self.algo.importance_score.enabled = False
+        self.algo.importance_score.ignore_threshold = 0.1
+        self.algo.importance_score.maximize_threshold = 0.8
         
         # horizon parameters
         self.algo.horizon.observation_horizon = 2

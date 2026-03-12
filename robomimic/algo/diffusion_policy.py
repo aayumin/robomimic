@@ -219,7 +219,13 @@ class DiffusionPolicyUNet(PolicyAlgo):
             # L2 loss with importance_score weight
             if self.algo_config.importance_score.enabled:
                 importance_score = batch["importance_score"]
-                w = 1.0 + 0.5 * importance_score
+                ignore_thre = self.algo_config.importance_score.ignore_threshold
+                maximize_thre = self.algo_config.importance_score.maximize_threshold
+
+                w = importance_score
+                w[w < ignore_thre] = 0.0
+                w[w > maximize_thre] = 1.0
+
                 mse = F.mse_loss(noise_pred, noise, reduction="none")
                 loss = (mse.mean(-1) * w).sum() / w.sum()
 
