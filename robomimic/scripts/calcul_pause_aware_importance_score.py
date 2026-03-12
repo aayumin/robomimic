@@ -9,16 +9,36 @@ from tqdm import tqdm
 
 def normalize(x):
     x = x - x.min()
-    if x.max() > 1e-6:
-        x = x / x.max()
+    if x.max() > 1e-6: x = x / x.max()
+    return x
+
+def normalize_without_outlier(x):
+
+    lower = np.percentile(x, 0)
+    upper = np.percentile(x, 90)
+    x = np.clip(x, lower, upper)
+    x = (x - lower) / (upper - lower)
     return x
 
 
+def compute_action_change_and_normalize(actions):
+    diff = actions[1:] - actions[:-1]
+
+    mag_ee = np.linalg.norm(diff[:, :-1], axis=1)
+    mag_ee = np.concatenate([mag_ee, mag_ee[-1:]])
+    mag_ee = normalize_without_outlier(mag_ee)
+    mag_gripper = np.concatenate([diff[:, -1], diff[-1:, -1]])
+    mag_gripper = normalize(np.abs(mag_gripper))
+
+    mag = np.vstack([mag_ee, mag_gripper])
+    mag = np.max(mag, axis=0)
+    return mag
 
 def compute_action_change(actions):
     diff = actions[1:] - actions[:-1]
     mag = np.linalg.norm(diff, axis=1)
     mag = np.concatenate([mag, mag[-1:]])
+
     return mag
 
 def compute_obs_change(obs):
@@ -29,13 +49,15 @@ def compute_obs_change(obs):
 
 
 def compute_importance(actions, obs):
-    action_mag = compute_action_change(actions)
+    
     obs_change = compute_obs_change(obs)
-
-    action_mag = normalize(action_mag)
     obs_change = normalize(obs_change)
 
-    score = ALPHA * action_mag + BETA * obs_change
+    action_change = compute_action_change_and_normalize(actions)
+    # action_change = normalize(action_change)
+    
+
+    score = ALPHA * action_change + BETA * obs_change
     score = 1 / (1 + np.exp(-score))
 
 
@@ -77,7 +99,7 @@ def save_video(video_data, filename, fps=10):
 
 
 
-def visualize_importance_score(demo):
+def visualize_importance_score(demo, fname = "viz_importance_score.mp4"):
 
     epi_len, H, W, _ = demo["obs"]["agentview_image"].shape
     canvas = np.zeros((epi_len, H + 20, W, 3))
@@ -85,7 +107,7 @@ def visualize_importance_score(demo):
     canvas[:,H:, :, 0] = demo["importance_score"].reshape((-1, 1, 1)) * 255.0
 
     canvas = np.array(canvas, dtype=np.uint8)
-    save_video(canvas, "viz_importance_score.mp4")
+    save_video(canvas, fname)
 
 
 
@@ -95,9 +117,9 @@ def process_demo(demo):
     actions = demo["actions"][:]
     obs = demo["obs"]["robot0_eef_pos"][:]
 
-    importance = compute_importance(actions, obs)
+    weight = compute_importance(actions, obs)
 
-    weight = gmm_smooth(importance)
+    if APPLY_SMOOTH.lower() == "true": weight = gmm_smooth(weight)
     weight = normalize(weight)
     demo["importance_score"] = weight
 
@@ -122,7 +144,8 @@ def process_dataset():
             new_demo = process_demo(demo_copy)
 
             ## remove
-            if demo_key == "demo_0": visualize_importance_score(new_demo)
+            # if demo_key == "demo_0": visualize_importance_score(new_demo)
+            if demo_key[-1] == "0": visualize_importance_score(new_demo, demo_key + ".mp4")
 
             save_all_data(demo_sub_group, new_demo)
             for name, value in demo_data.attrs.items():
@@ -140,6 +163,7 @@ if __name__ == "__main__":
     parser.add_argument("--alpha",type=float, default = 0.5)
     parser.add_argument("--beta",type=float, default = 0.5)
     parser.add_argument("--smooth_sigma",type=float, default = 3.0)
+    parser.add_argument("--apply_smooth",  type=str, default="true")
     args = parser.parse_args()
 
     INPUT_PATH = args.original_path
@@ -148,5 +172,6 @@ if __name__ == "__main__":
     ALPHA = args.alpha
     BETA = args.beta
     SMOOTH_SIGMA = args.smooth_sigma
+    APPLY_SMOOTH = args.apply_smooth
 
     process_dataset()
