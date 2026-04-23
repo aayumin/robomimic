@@ -17,7 +17,7 @@ def main():
     with h5py.File(args.dataset, "r") as f:
         demos = sorted([k for k in f["data"].keys() if k.startswith("demo_")])
 
-        for demo in demos[:100]:
+        for demo in demos:
             g = f[f"data/{demo}"]
 
             feat_list = []

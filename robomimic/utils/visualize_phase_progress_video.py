@@ -2,8 +2,9 @@ import h5py
 import numpy as np
 import matplotlib.pyplot as plt
 
-path = "datasets/square/ph/image_v15_pause_Cphase.hdf5"
-image_key = "agentview_image"  # 필요시 수정
+path = "datasets/square/ph/image_v15_pause_IS_Cphase.hdf5"
+image_key = "agentview_image" 
+
 
 with h5py.File(path, "r") as f:
     demo = sorted([k for k in f["data"].keys() if k.startswith("demo_")])[0]
