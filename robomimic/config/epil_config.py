@@ -4,8 +4,8 @@ Config for Diffusion Policy algorithm.
 
 from robomimic.config.base_config import BaseConfig
 
-class DiffusionPolicyConfig(BaseConfig):
-    ALGO_NAME = "diffusion_policy"
+class EPILConfig(BaseConfig):
+    ALGO_NAME = "epil"
 
     def train_config(self):
         """
@@ -14,7 +14,7 @@ class DiffusionPolicyConfig(BaseConfig):
         - don't need "next_obs" from hdf5 - so save on storage and compute by disabling it
         - set compatible data loading parameters
         """
-        super(DiffusionPolicyConfig, self).train_config()
+        super(EPILConfig, self).train_config()
         
         # disable next_obs loading from hdf5
         self.train.hdf5_load_next_obs = False
@@ -51,7 +51,10 @@ class DiffusionPolicyConfig(BaseConfig):
         self.algo.phase_head.enabled = True
         self.algo.phase_head.num_classes = 4
         self.algo.phase_head.loss_weight = 0.1
-        
+        self.algo.importance_score.enabled = True
+        self.algo.importance_score.ignore_threshold = 0.05
+        self.algo.importance_score.maximize_threshold = 0.30
+
         # horizon parameters
         self.algo.horizon.observation_horizon = 2
         self.algo.horizon.action_horizon = 8

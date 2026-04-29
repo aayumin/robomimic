@@ -161,6 +161,7 @@
                 "rgb": [],
                 "depth": [],
                 "scan": []
+                
             },
             "goal": {
                 "low_dim": [],

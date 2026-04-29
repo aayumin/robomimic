@@ -403,6 +403,8 @@ def train(config, device, resume=False):
                     else:
                         data_logger.record("Rollout/{}".format(k), v, epoch, log_stats=True)
 
+
+
                 print("\nEpoch {} Rollouts took {}s (avg) with results:".format(epoch, rollout_logs["time"]))
                 print('Env: {}'.format(env_name))
                 print(json.dumps(rollout_logs, sort_keys=True, indent=4))

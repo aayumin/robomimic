@@ -15,7 +15,7 @@ from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from diffusers.training_utils import EMAModel
 
 import robomimic.models.obs_nets as ObsNets
-import robomimic.models.EPIL_nets as EPILNets
+import robomimic.models.epil_nets as EPILNets
 import robomimic.utils.tensor_utils as TensorUtils
 import robomimic.utils.torch_utils as TorchUtils
 import robomimic.utils.obs_utils as ObsUtils
@@ -42,14 +42,14 @@ def algo_config_to_class(algo_config):
     """
 
     if algo_config.unet.enabled:
-        return EPILUNet, {}
+        return EPILPolicy, {}
     elif algo_config.transformer.enabled:
         raise NotImplementedError()
     else:
         raise RuntimeError()
 
 
-class EPILUNet(PolicyAlgo):
+class EPILPolicy(PolicyAlgo):
     def _create_networks(self):
         """
         Creates networks and places them into @self.nets.
@@ -75,12 +75,12 @@ class EPILUNet(PolicyAlgo):
         num_phase_classes = self.algo_config.phase_head.num_classes
         aux_hidden_dim = self.algo_config.aux_head.hidden_dim
 
-        noise_pred_net = DPNets.ConditionalUnet1D(
+        noise_pred_net = EPILNets.ConditionalUnet1D(
             input_dim=self.ac_dim,
             global_cond_dim=global_cond_dim
         )
 
-        aux_head = DPNets.AuxTemporalHead(
+        aux_head = EPILNets.AuxTemporalHead(
             global_cond_dim=global_cond_dim,
             prediction_horizon=Tp,
             num_phase_classes=num_phase_classes,
@@ -94,6 +94,8 @@ class EPILUNet(PolicyAlgo):
                 "aux_head": aux_head,
             })
         })
+
+        nets = nets.float().to(self.device)
         
         # setup noise scheduler
         noise_scheduler = None
@@ -150,7 +152,7 @@ class EPILUNet(PolicyAlgo):
         input_batch["obs"] = {k: batch["obs"][k][:, :To, :] for k in batch["obs"]}
         input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
         input_batch["actions"] = batch["actions"][:, :Tp, :]
-        if self.algo_config.importance_score.enabled: input_batch["importance_score"] = batch["importance_score"][:, :Tp]
+        if self.algo_config.importance_score.enabled or self.algo_config.event_head.enabled: input_batch["importance_score"] = batch["importance_score"][:, :Tp]
         if self.algo_config.phase_head.enabled: input_batch["phase_labels"] = batch["phase_labels"][:, :Tp]
 
         # check if actions are normalized to [-1,1]
@@ -189,7 +191,7 @@ class EPILUNet(PolicyAlgo):
         
         
         with TorchUtils.maybe_no_grad(no_grad=validate):
-            info = super(EPILUNet, self).train_on_batch(batch, epoch, validate=validate)
+            info = super(EPILPolicy, self).train_on_batch(batch, epoch, validate=validate)
             actions = batch["actions"]
             
             # encode obs
@@ -323,7 +325,7 @@ class EPILUNet(PolicyAlgo):
         Returns:
             loss_log (dict): name -> summary statistic
         """
-        log = super(EPILUNet, self).log_info(info)
+        log = super(EPILPolicy, self).log_info(info)
         for k, v in info["losses"].items():
             log[k] = v.item()
         # log["L2"] = info["losses"]["l2_loss"].item()
