@@ -247,7 +247,6 @@ class ConditionalUnet1D(nn.Module):
         # (B,T,C)
         return x
     
-
 class AuxTemporalHead(nn.Module):
     def __init__(
         self,
@@ -256,11 +255,13 @@ class AuxTemporalHead(nn.Module):
         num_phase_classes: int,
         hidden_dim: int = 256,
         phase_emb_dim: int = 16,
+        action_dim: int = 7,
         dropout: float = 0.0,
     ):
         super().__init__()
         self.prediction_horizon = prediction_horizon
         self.num_phase_classes = num_phase_classes
+        self.action_dim = action_dim
 
         self.trunk = nn.Sequential(
             nn.Linear(global_cond_dim, hidden_dim),
@@ -271,21 +272,34 @@ class AuxTemporalHead(nn.Module):
         )
 
         self.event_head = nn.Linear(hidden_dim, prediction_horizon * 2)
-
-        # chunk-level phase prediction: [B, K]
         self.phase_head = nn.Linear(hidden_dim, num_phase_classes)
-
-        # phase embedding table
         self.phase_embedding = nn.Embedding(num_phase_classes, phase_emb_dim)
+
+        # [K, 3], 외부에서 set_phase_mean_abs_pos_table()로 주입
+        self.register_buffer(
+            "phase_mean_abs_pos_table",
+            torch.zeros(num_phase_classes, 3),
+        )
+
+    def set_phase_mean_abs_pos_table(self, table: torch.Tensor):
+        """
+        table: [K, 3]
+        """
+        if table.shape != self.phase_mean_abs_pos_table.shape:
+            raise ValueError(
+                f"Expected table shape {self.phase_mean_abs_pos_table.shape}, got {table.shape}"
+            )
+        self.phase_mean_abs_pos_table.copy_(table.float())
 
     def forward(self, global_cond: torch.Tensor):
         """
         global_cond: [B, global_cond_dim]
 
         returns:
-            event_logits: [B, Tp, 2]
-            phase_logits: [B, K]
-            phase_emb:    [B, phase_emb_dim]
+            event_logits:   [B, Tp, 2]
+            phase_logits:   [B, K]
+            phase_emb:      [B, phase_emb_dim]
+            coarse_abs_pos: [B, Tp, 3]
         """
         feat = self.trunk(global_cond)
 
@@ -293,10 +307,13 @@ class AuxTemporalHead(nn.Module):
             feat.shape[0], self.prediction_horizon, 2
         )
 
-        phase_logits = self.phase_head(feat)  # [B, K]
+        phase_logits = self.phase_head(feat)
+        phase_prob = torch.softmax(phase_logits, dim=-1)
 
-        # predicted soft phase embedding
-        phase_prob = torch.softmax(phase_logits, dim=-1)  # [B, K]
-        phase_emb = phase_prob @ self.phase_embedding.weight  # [B, phase_emb_dim]
+        phase_emb = phase_prob @ self.phase_embedding.weight          # [B, E]
+        coarse_abs_pos = phase_prob @ self.phase_mean_abs_pos_table   # [B, 3]
+        coarse_abs_pos = coarse_abs_pos[:, None, :].expand(
+            -1, self.prediction_horizon, -1
+        )                                                             # [B, Tp, 3]
 
-        return event_logits, phase_logits, phase_emb
+        return event_logits, phase_logits, phase_emb, coarse_abs_pos

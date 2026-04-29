@@ -54,6 +54,8 @@ class EPILConfig(BaseConfig):
         self.algo.phase_condition.enabled = True
         self.algo.phase_condition.emb_dim = 16
         self.algo.phase_condition.detach = False
+        self.algo.phase_condition.phase_mean_table_path = "datasets/square/ph/image_v15_pause_IS_Cphase3_absposition.hdf5"
+        self.algo.phase_condition.phase_mean_table_key =  "meta/phase_mean_abs_pos_table"
         self.algo.importance_score.enabled = True
         self.algo.importance_score.ignore_threshold = 0.05
         self.algo.importance_score.maximize_threshold = 0.30

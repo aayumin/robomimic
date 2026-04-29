@@ -9,6 +9,10 @@ import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+import h5py
+import numpy as np
+
 # requires diffusers==0.11.1
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
@@ -75,14 +79,15 @@ class EPILPolicy(PolicyAlgo):
         phase_emb_dim = self.algo_config.phase_condition.emb_dim
         num_phase_classes = self.algo_config.phase_head.num_classes
 
+
         aux_head = EPILNets.AuxTemporalHead(
             global_cond_dim=obs_cond_dim,
             prediction_horizon=Tp,
             num_phase_classes=num_phase_classes,
             hidden_dim=self.algo_config.aux_head.hidden_dim,
             phase_emb_dim=phase_emb_dim,
+            action_dim=self.ac_dim,
         )
-
         noise_pred_net = EPILNets.ConditionalUnet1D(
             input_dim=self.ac_dim,
             global_cond_dim=obs_cond_dim + phase_emb_dim,
@@ -97,6 +102,9 @@ class EPILPolicy(PolicyAlgo):
         })
 
         nets = nets.float().to(self.device)
+
+        phase_mean_table = self._load_phase_mean_abs_pos_table().to(self.device)
+        nets["policy"]["aux_head"].set_phase_mean_abs_pos_table(phase_mean_table)
         
         # setup noise scheduler
         noise_scheduler = None
@@ -131,7 +139,32 @@ class EPILPolicy(PolicyAlgo):
         self.action_check_done = False
         self.obs_queue = None
         self.action_queue = None
-    
+        
+    def _load_phase_mean_abs_pos_table(self):
+        """
+        Returns:
+            torch.Tensor: [K, 3]
+        """
+        path = self.algo_config.phase_condition.phase_mean_table_path
+        key = self.algo_config.phase_condition.phase_mean_table_key
+
+        with h5py.File(path, "r") as f:
+            table = f[key][()].astype(np.float32)
+
+        table = torch.from_numpy(table)
+
+        if table.shape[0] != self.algo_config.phase_head.num_classes:
+            raise ValueError(
+                f"num_phase_classes mismatch: table has {table.shape[0]}, "
+                f"config has {self.algo_config.phase_head.num_classes}"
+            )
+
+        if table.shape[1] != 3:
+            raise ValueError(f"phase mean abs pos table must have shape [K, 3], got {table.shape}")
+
+        return table
+
+
     def process_batch_for_training(self, batch):
         """
         Processes input batch from a data loader to filter out
@@ -153,17 +186,28 @@ class EPILPolicy(PolicyAlgo):
         input_batch["obs"] = {k: batch["obs"][k][:, :To, :] for k in batch["obs"]}
         input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
         input_batch["actions"] = batch["actions"][:, :Tp, :]
-        if self.algo_config.importance_score.enabled or self.algo_config.event_head.enabled: input_batch["importance_score"] = batch["importance_score"][:, :Tp]
-        if self.algo_config.phase_head.enabled: input_batch["phase_labels"] = batch["phase_labels"][:, :Tp]
 
+        if self.algo_config.importance_score.enabled or self.algo_config.event_head.enabled: input_batch["importance_score"] = batch["importance_score"][:, :Tp]
+        if self.algo_config.phase_head.enabled or self.algo_config.phase_condition.enabled: input_batch["phase_labels"] = batch["phase_labels"][:, :Tp]
+        if self.algo_config.phase_condition.enabled: input_batch["phase_mean_abs_pos"] = batch["phase_mean_abs_pos"][:, :Tp, :]
+
+            
         # check if actions are normalized to [-1,1]
         if not self.action_check_done:
             actions = input_batch["actions"]
             in_range = (-1 <= actions) & (actions <= 1)
             all_in_range = torch.all(in_range).item()
+            # if not all_in_range:
+            #     raise ValueError("'actions' must be in range [-1,1] for Diffusion Policy! Check if hdf5_normalize_action is enabled.")
             if not all_in_range:
-                raise ValueError("'actions' must be in range [-1,1] for Diffusion Policy! Check if hdf5_normalize_action is enabled.")
+                print(
+                    "[Warning] actions are not in [-1, 1]. "
+                    "This is expected if actions[:, :3] are absolute EEF positions. "
+                    "Make sure absolute position actions are normalized before diffusion training."
+                )
             self.action_check_done = True
+
+
         
         return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
         
@@ -209,9 +253,8 @@ class EPILPolicy(PolicyAlgo):
 
             obs_cond = obs_features.flatten(start_dim=1)
 
-            event_logits, phase_logits, phase_emb = self.nets["policy"]["aux_head"](obs_cond)
+            event_logits, phase_logits, phase_emb, coarse_abs_pos = self.nets["policy"]["aux_head"](obs_cond)
 
-            # optional: 안정성 필요하면 phase_emb.detach() 사용
             if self.algo_config.phase_condition.detach:
                 phase_emb_for_policy = phase_emb.detach()
             else:
@@ -219,10 +262,22 @@ class EPILPolicy(PolicyAlgo):
 
             policy_cond = torch.cat([obs_cond, phase_emb_for_policy], dim=-1)
 
-            # sample noise to add to actions
-            noise = torch.randn(actions.shape, device=self.device)
+            # -------------------------------------------------
+            # target: full action -> residual action
+            # position dims: residual = absolute_pos - phase_mean_abs_pos
+            # other dims: original action 그대로 예측
+            # -------------------------------------------------
+            residual_actions = actions.clone()
+            residual_actions[:, :, :3] = actions[:, :, :3] - coarse_abs_pos
 
-            # sample a diffusion iteration for each data point
+            # optional residual scaling for position dims
+            if "residual_scale" in self.algo_config.phase_condition:
+                residual_scale = self.algo_config.phase_condition.residual_scale
+                residual_actions[:, :, :3] = residual_actions[:, :, :3] / residual_scale
+
+            # sample noise to add to residual actions
+            noise = torch.randn(residual_actions.shape, device=self.device)
+
             timesteps = torch.randint(
                 0,
                 self.noise_scheduler.config.num_train_timesteps,
@@ -230,19 +285,23 @@ class EPILPolicy(PolicyAlgo):
                 device=self.device
             ).long()
 
-            # add noise to the clean actions according to the noise magnitude at each diffusion iteration
-            noisy_actions = self.noise_scheduler.add_noise(actions, noise, timesteps)
+            noisy_residual_actions = self.noise_scheduler.add_noise(
+                residual_actions, noise, timesteps
+            )
 
-            # predict the noise residual
             noise_pred = self.nets["policy"]["noise_pred_net"](
-                noisy_actions, timesteps, global_cond=policy_cond
+                noisy_residual_actions,
+                timesteps,
+                global_cond=policy_cond
             )
 
             aux_losses = {}
 
             # -------------------------------------------------
-            # 1) main diffusion loss 먼저 계산
+            # 1) residual diffusion loss
             # -------------------------------------------------
+            mse = F.mse_loss(noise_pred, noise, reduction="none")
+
             if self.algo_config.importance_score.enabled:
                 importance_score = batch["importance_score"]
                 ignore_thre = self.algo_config.importance_score.ignore_threshold
@@ -252,7 +311,6 @@ class EPILPolicy(PolicyAlgo):
                 w[w < ignore_thre] = 0.0
                 w[w > maximize_thre] = 1.0
 
-                mse = F.mse_loss(noise_pred, noise, reduction="none")
                 diffusion_loss = (mse.mean(-1) * w).sum() / (w.sum() + 1e-6)
 
                 losses = {
@@ -260,7 +318,6 @@ class EPILPolicy(PolicyAlgo):
                     "IS_weight_mean": w.mean(),
                 }
             else:
-                mse = F.mse_loss(noise_pred, noise, reduction="none")
                 diffusion_loss = mse.mean()
 
                 losses = {
@@ -270,12 +327,12 @@ class EPILPolicy(PolicyAlgo):
             loss = diffusion_loss
 
             # -------------------------------------------------
-            # 2) event loss 추가
+            # 2) event loss
             # -------------------------------------------------
             if self.algo_config.event_head.enabled:
                 importance_score = batch["importance_score"]
                 event_threshold = self.algo_config.event_head.threshold
-                event_labels = (importance_score >= event_threshold).long()  # [B, Tp]
+                event_labels = (importance_score >= event_threshold).long()
 
                 event_loss = F.cross_entropy(
                     event_logits.reshape(-1, 2),
@@ -285,11 +342,10 @@ class EPILPolicy(PolicyAlgo):
                 aux_losses["Event_Loss"] = event_loss
 
             # -------------------------------------------------
-            # 3) phase loss 추가
+            # 3) phase loss
             # -------------------------------------------------
             if self.algo_config.phase_head.enabled:
-                phase_labels = batch["phase_labels"][:, Tp // 2].long()  # [B]
-                num_phase_classes = phase_logits.shape[-1]
+                phase_labels = batch["phase_labels"][:, Tp // 2].long()
 
                 phase_loss = F.cross_entropy(
                     phase_logits,
@@ -297,10 +353,12 @@ class EPILPolicy(PolicyAlgo):
                 )
 
                 loss = loss + self.algo_config.phase_head.loss_weight * phase_loss
-                losses["Phase_Loss"] = phase_loss
+                aux_losses["Phase_Loss"] = phase_loss
 
-            losses["Diffusion_Loss"] = diffusion_loss
+            losses["Residual_Diffusion_Loss"] = diffusion_loss
             losses["Loss"] = loss
+            losses["Residual_Pos_Abs_Mean"] = residual_actions[:, :, :3].abs().mean()
+            losses["Coarse_Abs_Pos_Mean"] = coarse_abs_pos.abs().mean()
             losses.update(aux_losses)
             
             
@@ -423,44 +481,54 @@ class EPILPolicy(PolicyAlgo):
         assert obs_features.ndim == 3  # [B, T, D]
         B = obs_features.shape[0]
 
-        # reshape observation to (B,obs_horizon*obs_dim)
+        # reshape observation to (B, obs_horizon * obs_dim)
         obs_cond = obs_features.flatten(start_dim=1)
 
-        _, phase_logits, phase_emb = nets["policy"]["aux_head"](obs_cond)
+        _, phase_logits, phase_emb, coarse_abs_pos = nets["policy"]["aux_head"](obs_cond)
 
         if self.algo_config.phase_condition.detach:
             phase_emb = phase_emb.detach()
 
         policy_cond = torch.cat([obs_cond, phase_emb], dim=-1)
 
-        # initialize action from Guassian noise
-        noisy_action = torch.randn(
-            (B, Tp, action_dim), device=self.device)
-        naction = noisy_action
-        
-        # init scheduler
+        # initialize residual action from Gaussian noise
+        noisy_residual_action = torch.randn(
+            (B, Tp, action_dim), device=self.device
+        )
+        nresidual = noisy_residual_action
+
         self.noise_scheduler.set_timesteps(num_inference_timesteps)
 
         for k in self.noise_scheduler.timesteps:
-            # predict noise
             noise_pred = nets["policy"]["noise_pred_net"](
-                sample=naction,
+                sample=nresidual,
                 timestep=k,
                 global_cond=policy_cond
             )
 
-            # inverse diffusion step (remove noise)
-            naction = self.noise_scheduler.step(
+            nresidual = self.noise_scheduler.step(
                 model_output=noise_pred,
                 timestep=k,
-                sample=naction
+                sample=nresidual
             ).prev_sample
+
+        # optional residual scaling for position dims
+        if "residual_scale" in self.algo_config.phase_condition:
+            residual_scale = self.algo_config.phase_condition.residual_scale
+            nresidual[:, :, :3] = nresidual[:, :, :3] * residual_scale
+
+        # residual -> final action
+        # position dims: absolute_pos = coarse_abs_pos + residual_pos
+        # orientation / gripper dims: residual net output 그대로 사용
+        final_action = nresidual.clone()
+        final_action[:, :, :3] = coarse_abs_pos + nresidual[:, :, :3]
 
         # process action using Ta
         start = To - 1
         end = start + Ta
-        action = naction[:,start:end]
+        action = final_action[:, start:end]
         return action
+    
 
     def serialize(self):
         """
