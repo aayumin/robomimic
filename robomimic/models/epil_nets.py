@@ -246,8 +246,7 @@ class ConditionalUnet1D(nn.Module):
         x = x.moveaxis(-1,-2)
         # (B,T,C)
         return x
-
-
+    
 
 class AuxTemporalHead(nn.Module):
     def __init__(
@@ -256,6 +255,7 @@ class AuxTemporalHead(nn.Module):
         prediction_horizon: int,
         num_phase_classes: int,
         hidden_dim: int = 256,
+        phase_emb_dim: int = 16,
         dropout: float = 0.0,
     ):
         super().__init__()
@@ -271,7 +271,12 @@ class AuxTemporalHead(nn.Module):
         )
 
         self.event_head = nn.Linear(hidden_dim, prediction_horizon * 2)
-        self.phase_head = nn.Linear(hidden_dim, prediction_horizon * num_phase_classes)
+
+        # chunk-level phase prediction: [B, K]
+        self.phase_head = nn.Linear(hidden_dim, num_phase_classes)
+
+        # phase embedding table
+        self.phase_embedding = nn.Embedding(num_phase_classes, phase_emb_dim)
 
     def forward(self, global_cond: torch.Tensor):
         """
@@ -279,14 +284,19 @@ class AuxTemporalHead(nn.Module):
 
         returns:
             event_logits: [B, Tp, 2]
-            phase_logits: [B, Tp, K]
+            phase_logits: [B, K]
+            phase_emb:    [B, phase_emb_dim]
         """
         feat = self.trunk(global_cond)
 
         event_logits = self.event_head(feat).view(
             feat.shape[0], self.prediction_horizon, 2
         )
-        phase_logits = self.phase_head(feat).view(
-            feat.shape[0], self.prediction_horizon, self.num_phase_classes
-        )
-        return event_logits, phase_logits
+
+        phase_logits = self.phase_head(feat)  # [B, K]
+
+        # predicted soft phase embedding
+        phase_prob = torch.softmax(phase_logits, dim=-1)  # [B, K]
+        phase_emb = phase_prob @ self.phase_embedding.weight  # [B, phase_emb_dim]
+
+        return event_logits, phase_logits, phase_emb

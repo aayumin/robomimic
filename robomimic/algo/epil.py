@@ -69,22 +69,23 @@ class EPILPolicy(PolicyAlgo):
         obs_encoder = replace_bn_with_gn(obs_encoder)
         
         obs_dim = obs_encoder.output_shape()[0]
-
-        global_cond_dim = obs_dim * self.algo_config.horizon.observation_horizon
+        obs_cond_dim = obs_dim * self.algo_config.horizon.observation_horizon
         Tp = self.algo_config.horizon.prediction_horizon
+
+        phase_emb_dim = self.algo_config.phase_condition.emb_dim
         num_phase_classes = self.algo_config.phase_head.num_classes
-        aux_hidden_dim = self.algo_config.aux_head.hidden_dim
+
+        aux_head = EPILNets.AuxTemporalHead(
+            global_cond_dim=obs_cond_dim,
+            prediction_horizon=Tp,
+            num_phase_classes=num_phase_classes,
+            hidden_dim=self.algo_config.aux_head.hidden_dim,
+            phase_emb_dim=phase_emb_dim,
+        )
 
         noise_pred_net = EPILNets.ConditionalUnet1D(
             input_dim=self.ac_dim,
-            global_cond_dim=global_cond_dim
-        )
-
-        aux_head = EPILNets.AuxTemporalHead(
-            global_cond_dim=global_cond_dim,
-            prediction_horizon=Tp,
-            num_phase_classes=num_phase_classes,
-            hidden_dim=aux_hidden_dim,
+            global_cond_dim=obs_cond_dim + phase_emb_dim,
         )
 
         nets = nn.ModuleDict({
@@ -207,7 +208,16 @@ class EPILPolicy(PolicyAlgo):
             assert obs_features.ndim == 3  # [B, T, D]
 
             obs_cond = obs_features.flatten(start_dim=1)
-            event_logits, phase_logits = self.nets["policy"]["aux_head"](obs_cond)
+
+            event_logits, phase_logits, phase_emb = self.nets["policy"]["aux_head"](obs_cond)
+
+            # optional: 안정성 필요하면 phase_emb.detach() 사용
+            if self.algo_config.phase_condition.detach:
+                phase_emb_for_policy = phase_emb.detach()
+            else:
+                phase_emb_for_policy = phase_emb
+
+            policy_cond = torch.cat([obs_cond, phase_emb_for_policy], dim=-1)
 
             # sample noise to add to actions
             noise = torch.randn(actions.shape, device=self.device)
@@ -225,7 +235,7 @@ class EPILPolicy(PolicyAlgo):
 
             # predict the noise residual
             noise_pred = self.nets["policy"]["noise_pred_net"](
-                noisy_actions, timesteps, global_cond=obs_cond
+                noisy_actions, timesteps, global_cond=policy_cond
             )
 
             aux_losses = {}
@@ -278,15 +288,16 @@ class EPILPolicy(PolicyAlgo):
             # 3) phase loss 추가
             # -------------------------------------------------
             if self.algo_config.phase_head.enabled:
-                phase_labels = batch["phase_labels"].long()  # [B, Tp]
+                phase_labels = batch["phase_labels"][:, Tp // 2].long()  # [B]
                 num_phase_classes = phase_logits.shape[-1]
 
                 phase_loss = F.cross_entropy(
-                    phase_logits.reshape(-1, num_phase_classes),
-                    phase_labels.reshape(-1),
+                    phase_logits,
+                    phase_labels,
                 )
+
                 loss = loss + self.algo_config.phase_head.loss_weight * phase_loss
-                aux_losses["Phase_Loss"] = phase_loss
+                losses["Phase_Loss"] = phase_loss
 
             losses["Diffusion_Loss"] = diffusion_loss
             losses["Loss"] = loss
@@ -415,6 +426,13 @@ class EPILPolicy(PolicyAlgo):
         # reshape observation to (B,obs_horizon*obs_dim)
         obs_cond = obs_features.flatten(start_dim=1)
 
+        _, phase_logits, phase_emb = nets["policy"]["aux_head"](obs_cond)
+
+        if self.algo_config.phase_condition.detach:
+            phase_emb = phase_emb.detach()
+
+        policy_cond = torch.cat([obs_cond, phase_emb], dim=-1)
+
         # initialize action from Guassian noise
         noisy_action = torch.randn(
             (B, Tp, action_dim), device=self.device)
@@ -426,9 +444,9 @@ class EPILPolicy(PolicyAlgo):
         for k in self.noise_scheduler.timesteps:
             # predict noise
             noise_pred = nets["policy"]["noise_pred_net"](
-                sample=naction, 
+                sample=naction,
                 timestep=k,
-                global_cond=obs_cond
+                global_cond=policy_cond
             )
 
             # inverse diffusion step (remove noise)
