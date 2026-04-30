@@ -355,10 +355,7 @@ class EPILPolicy(PolicyAlgo):
                 loss = loss + self.algo_config.phase_head.loss_weight * phase_loss
                 aux_losses["Phase_Loss"] = phase_loss
 
-            losses["Residual_Diffusion_Loss"] = diffusion_loss
             losses["Loss"] = loss
-            losses["Residual_Pos_Abs_Mean"] = residual_actions[:, :, :3].abs().mean()
-            losses["Coarse_Abs_Pos_Mean"] = coarse_abs_pos.abs().mean()
             losses.update(aux_losses)
             
             
