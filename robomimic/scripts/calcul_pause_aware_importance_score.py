@@ -6,10 +6,11 @@ from scipy.ndimage import gaussian_filter1d
 from tqdm import tqdm
 
 
+## normalize
 
 def normalize(x):
-    x = x - x.min()
-    if x.max() > 1e-6: x = x / x.max()
+    eps = 1e-6
+    x = (x - x.min()) / (x.max() - x.min() + eps)
     return x
 
 def normalize_without_outlier(x):
@@ -21,18 +22,7 @@ def normalize_without_outlier(x):
     return x
 
 
-def compute_action_change_and_normalize(actions):
-    diff = actions[1:] - actions[:-1]
-
-    mag_ee = np.linalg.norm(diff[:, :-1], axis=1)
-    mag_ee = np.concatenate([mag_ee, mag_ee[-1:]])
-    mag_ee = normalize_without_outlier(mag_ee)
-    mag_gripper = np.concatenate([diff[:, -1], diff[-1:, -1]])
-    mag_gripper = normalize(np.abs(mag_gripper))
-
-    mag = np.vstack([mag_ee, mag_gripper])
-    mag = np.max(mag, axis=0)
-    return mag
+## compute delta
 
 def compute_action_change(actions):
     diff = actions[1:] - actions[:-1]
@@ -46,6 +36,21 @@ def compute_obs_change(obs):
     mag = np.linalg.norm(diff, axis=1)
     mag = np.concatenate([mag, mag[-1:]])
     return mag
+
+## compute importance score
+
+def compute_action_change_and_normalize(actions):
+    diff = actions[1:] - actions[:-1]  ## robomimic default: relative action
+
+    mag_ee = np.linalg.norm(actions, axis=1)
+    mag_ee = normalize_without_outlier(mag_ee)
+    mag_gripper = np.concatenate([diff[:, -1], diff[-1:, -1]])
+    mag_gripper = normalize(np.abs(mag_gripper))
+
+    mag = np.vstack([mag_ee, mag_gripper])
+    mag = np.max(mag, axis=0)
+    return mag
+
 
 
 def compute_importance(actions, obs):
@@ -105,7 +110,6 @@ def visualize_importance_score(demo, fname = "viz_importance_score.mp4"):
     canvas = np.zeros((epi_len, H + 20, W, 3))
     canvas[:,:H, :, :] = demo["obs"]["agentview_image"]
     canvas[:,H:, :, 0] = demo["importance_score"].reshape((-1, 1, 1)) * 255.0
-
     canvas = np.array(canvas, dtype=np.uint8)
     save_video(canvas, fname)
 
