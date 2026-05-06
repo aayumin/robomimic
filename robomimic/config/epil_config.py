@@ -53,7 +53,6 @@ class EPILConfig(BaseConfig):
         self.algo.phase_head.loss_weight = 0.1
         self.algo.phase_condition.enabled = True
         self.algo.phase_condition.emb_dim = 16
-        self.algo.phase_condition.detach = False
         self.algo.importance_score.enabled = True
         self.algo.importance_score.ignore_threshold = 0.05
         self.algo.importance_score.maximize_threshold = 0.30

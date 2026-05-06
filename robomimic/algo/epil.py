@@ -77,7 +77,6 @@ class EPILPolicy(PolicyAlgo):
 
         aux_head = EPILNets.AuxTemporalHead(
             global_cond_dim=obs_cond_dim,
-            prediction_horizon=Tp,
             num_phase_classes=num_phase_classes,
             hidden_dim=self.algo_config.aux_head.hidden_dim,
             phase_emb_dim=phase_emb_dim,
@@ -153,7 +152,6 @@ class EPILPolicy(PolicyAlgo):
         input_batch["obs"] = {k: batch["obs"][k][:, :To, :] for k in batch["obs"]}
         input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
         input_batch["actions"] = batch["actions"][:, :Tp, :]
-        if self.algo_config.importance_score.enabled or self.algo_config.event_head.enabled: input_batch["importance_score"] = batch["importance_score"][:, :Tp]
         if self.algo_config.phase_head.enabled: input_batch["phase_labels"] = batch["phase_labels"][:, :Tp]
 
         # check if actions are normalized to [-1,1]
@@ -208,29 +206,20 @@ class EPILPolicy(PolicyAlgo):
             assert obs_features.ndim == 3  # [B, T, D]
 
             obs_cond = obs_features.flatten(start_dim=1)
+            num_phase_classes = self.algo_config.phase_head.num_classes
+            current_phase_labels = batch["phase_labels"][:, 0].long()  # [B]
+            next_phase_labels = batch["phase_labels"][:, -1].long()  # [B]
+            current_phase_onehot = torch.nn.functional.one_hot(current_phase_labels, num_classes=num_phase_classes).float()
 
-            event_logits, phase_logits, phase_emb = self.nets["policy"]["aux_head"](obs_cond)
+            
 
-            # optional: 안정성 필요하면 phase_emb.detach() 사용
-            if self.algo_config.phase_condition.detach:
-                phase_emb_for_policy = phase_emb.detach()
-            else:
-                phase_emb_for_policy = phase_emb
+            current_phase_logits, next_phase_logits, phase_emb = self.nets["policy"]["aux_head"](obs_cond, current_phase_onehot)
 
-            policy_cond = torch.cat([obs_cond, phase_emb_for_policy], dim=-1)
+            policy_cond = torch.cat([obs_cond, phase_emb], dim=-1)
 
             # sample noise to add to actions
             noise = torch.randn(actions.shape, device=self.device)
-
-            # sample a diffusion iteration for each data point
-            timesteps = torch.randint(
-                0,
-                self.noise_scheduler.config.num_train_timesteps,
-                (B,),
-                device=self.device
-            ).long()
-
-            # add noise to the clean actions according to the noise magnitude at each diffusion iteration
+            timesteps = torch.randint(0, self.noise_scheduler.config.num_train_timesteps, (B,), device=self.device ).long()
             noisy_actions = self.noise_scheduler.add_noise(actions, noise, timesteps)
 
             # predict the noise residual
@@ -238,72 +227,37 @@ class EPILPolicy(PolicyAlgo):
                 noisy_actions, timesteps, global_cond=policy_cond
             )
 
-            aux_losses = {}
+            losses = {}
 
             # -------------------------------------------------
             # 1) main diffusion loss 먼저 계산
             # -------------------------------------------------
-            if self.algo_config.importance_score.enabled:
-                importance_score = batch["importance_score"]
-                ignore_thre = self.algo_config.importance_score.ignore_threshold
-                maximize_thre = self.algo_config.importance_score.maximize_threshold
-
-                w = importance_score.clone()
-                w[w < ignore_thre] = 0.0
-                w[w > maximize_thre] = 1.0
-
-                mse = F.mse_loss(noise_pred, noise, reduction="none")
-                diffusion_loss = (mse.mean(-1) * w).sum() / (w.sum() + 1e-6)
-
-                losses = {
-                    "L2": mse.mean(),
-                    "IS_weight_mean": w.mean(),
-                }
-            else:
-                mse = F.mse_loss(noise_pred, noise, reduction="none")
-                diffusion_loss = mse.mean()
-
-                losses = {
-                    "L2": mse.mean(),
-                }
+            mse = F.mse_loss(noise_pred, noise, reduction="none")
+            diffusion_loss = mse.mean()
 
             loss = diffusion_loss
 
             # -------------------------------------------------
-            # 2) event loss 추가
-            # -------------------------------------------------
-            if self.algo_config.event_head.enabled:
-                importance_score = batch["importance_score"]
-                event_threshold = self.algo_config.event_head.threshold
-                event_labels = (importance_score >= event_threshold).long()  # [B, Tp]
-
-                event_loss = F.cross_entropy(
-                    event_logits.reshape(-1, 2),
-                    event_labels.reshape(-1),
-                )
-                loss = loss + self.algo_config.event_head.loss_weight * event_loss
-                aux_losses["Event_Loss"] = event_loss
-
-            # -------------------------------------------------
             # 3) phase loss 추가
             # -------------------------------------------------
-            if self.algo_config.phase_head.enabled:
-                phase_labels = batch["phase_labels"][:, Tp // 2].long()  # [B]
-                num_phase_classes = phase_logits.shape[-1]
 
-                phase_loss = F.cross_entropy(
-                    phase_logits,
-                    phase_labels,
-                )
+            current_phase_loss = F.cross_entropy(
+                current_phase_logits,
+                current_phase_labels,
+            )
 
-                loss = loss + self.algo_config.phase_head.loss_weight * phase_loss
-                losses["Phase_Loss"] = phase_loss
+            next_phase_loss = F.cross_entropy(
+                next_phase_logits,
+                next_phase_labels,
+            )
+
+            phase_loss = (current_phase_loss + next_phase_loss) / 2
+            loss = loss + self.algo_config.phase_head.loss_weight * phase_loss
+
 
             losses["Diffusion_Loss"] = diffusion_loss
+            losses["Phase_Loss"] = phase_loss
             losses["Loss"] = loss
-            losses.update(aux_losses)
-            
-            
             info["losses"] = TensorUtils.detach(losses)
 
             if not validate:
@@ -339,9 +293,6 @@ class EPILPolicy(PolicyAlgo):
         log = super(EPILPolicy, self).log_info(info)
         for k, v in info["losses"].items():
             log[k] = v.item()
-        # log["L2"] = info["losses"]["l2_loss"].item()
-        # log["Loss"] = info["losses"]["total_loss"].item()
-        # log["IS_weight_mean"] = info["losses"]["IS_mean"].item()
         if "policy_grad_norms" in info:
             log["Policy_Grad_Norms"] = info["policy_grad_norms"]
         return log
@@ -426,10 +377,8 @@ class EPILPolicy(PolicyAlgo):
         # reshape observation to (B,obs_horizon*obs_dim)
         obs_cond = obs_features.flatten(start_dim=1)
 
-        _, phase_logits, phase_emb = nets["policy"]["aux_head"](obs_cond)
-
-        if self.algo_config.phase_condition.detach:
-            phase_emb = phase_emb.detach()
+        _, _, phase_emb = nets["policy"]["aux_head"](obs_cond)
+        
 
         policy_cond = torch.cat([obs_cond, phase_emb], dim=-1)
 
