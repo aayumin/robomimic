@@ -153,21 +153,6 @@ class SequenceDataset(torch.utils.data.Dataset):
         # prepare for action normalization
         self.action_normalization_stats = None
 
-        # sim gating config
-        self.sim_gating_cfg = sim_gating_cfg
-        if self.sim_gating_cfg is not None:
-            self.sim_gating_stride = sim_gating_cfg.get("temporal_stride", 1)
-            
-
-        # sampling config
-        self.sampling_cfg = sampling_cfg
-        if self.sampling_cfg is not None:
-            self.sampling_stride = sampling_cfg.get("stride", 1)
-            self.sampling_min_negative_distance = sampling_cfg.get("min_negative_distance", 1)
-            self.sampling_num_negative_samples = sampling_cfg.get("num_negative_samples", 1)
-
-        # augmentation config
-        self.augmentation_config = augmentation_config
 
 
         # maybe store dataset in memory for fast access
@@ -202,7 +187,116 @@ class SequenceDataset(torch.utils.data.Dataset):
         else:
             self.hdf5_cache = None
 
+
+
+        # sim gating config
+        self.sim_gating_cfg = sim_gating_cfg
+        if self.sim_gating_cfg is not None:
+            self.sim_gating_stride = sim_gating_cfg.get("temporal_stride", 1)
+            
+
+        # sampling config
+        self.sampling_cfg = sampling_cfg
+        self.sampling_enabled = False
+        self.phase_boundaries = None
+        self.phase_to_indices = None
+        self.phase_ids_key = "phase_labels"
+        self.phase_progress_key = "phase_percentages"
+
+        if self.sampling_cfg is not None:
+            self.sampling_enabled = self.sampling_cfg.get("enabled", False)
+            self.default_num_phases = self.sampling_cfg.get("default_num_phases", 3)
+            self.use_hdf5_phase_labels = self.check_hdf5_phase_labels_exist()
+
+            if self.use_hdf5_phase_labels:
+                self.num_phases = self.infer_num_phases_from_hdf5()
+                self.phase_boundaries = None
+            else:
+                self.num_phases = 3
+                self.phase_boundaries = np.linspace(0.0, 1.0, self.num_phases + 1, dtype=np.float32)
+
+            if self.sampling_enabled:
+                self.phase_to_indices = self.build_phase_to_indices()
+
+        # augmentation config
+        self.augmentation_config = augmentation_config
+
+
         self.close_and_delete_hdf5_handle()
+
+    def check_hdf5_phase_labels_exist(self):
+        for ep in self.demos:
+            if self.phase_ids_key not in self.hdf5_file["data/{}".format(ep)]:
+                return False
+            # if self.phase_progress_key not in self.hdf5_file["data/{}".format(ep)]:
+            #     return False
+        return True
+
+
+    def infer_num_phases_from_hdf5(self):
+        phase_ids = []
+        for ep in self.demos:
+            phase_arr = self.hdf5_file["data/{}/{}".format(ep, self.phase_ids_key)][()]
+            phase_ids.append(phase_arr.reshape(-1))
+        phase_ids = np.concatenate(phase_ids, axis=0).astype(np.int64)
+        return int(len(np.unique(phase_ids)))
+
+    def get_phase_info(self, demo_id, index_in_demo):
+        if self.use_hdf5_phase_labels:
+            phase_ids = self.get_dataset_for_ep(demo_id, self.phase_ids_key)
+            phase_progress = self.get_dataset_for_ep(demo_id, self.phase_progress_key)
+
+            phase_id = phase_ids[index_in_demo]
+            progress = phase_progress[index_in_demo]
+
+            phase_id = int(np.asarray(phase_id).reshape(-1)[0])
+            progress = float(np.asarray(progress).reshape(-1)[0])
+            progress = float(np.clip(progress, 0.0, 1.0))
+
+            return phase_id, progress
+
+        demo_length = self._demo_id_to_demo_length[demo_id]
+        global_progress = float(index_in_demo) / max(float(demo_length - 1), 1.0)
+
+        phase_id = int(np.searchsorted(self.phase_boundaries[1:], global_progress, side="right"))
+        phase_id = int(np.clip(phase_id, 0, self.num_phases - 1))
+
+        phase_start = float(self.phase_boundaries[phase_id])
+        phase_end = float(self.phase_boundaries[phase_id + 1])
+        phase_progress = (global_progress - phase_start) / max(phase_end - phase_start, 1e-8)
+        phase_progress = float(np.clip(phase_progress, 0.0, 1.0))
+
+        return phase_id, phase_progress
+
+
+    def build_phase_to_indices(self):
+        """
+        Build index pools for phase-balanced batch sampling.
+
+        Returns:
+            phase_to_indices: dict
+                phase_id -> np.ndarray of dataset indices
+        """
+        phase_to_indices = dict()
+
+        for index in range(len(self)):
+            demo_id = self._index_to_demo_id[index]
+            demo_start_index = self._demo_id_to_start_indices[demo_id]
+            demo_index_offset = 0 if self.pad_frame_stack else (self.n_frame_stack - 1)
+            index_in_demo = index - demo_start_index + demo_index_offset
+
+            phase_id, _ = self.get_phase_info(demo_id, index_in_demo)
+
+            if phase_id not in phase_to_indices:
+                phase_to_indices[phase_id] = []
+            phase_to_indices[phase_id].append(index)
+
+        phase_to_indices = {k: np.array(v, dtype=np.int64) for k, v in phase_to_indices.items() if len(v) > 0}
+
+        assert len(phase_to_indices) > 0, "No valid phase indices found for phase-balanced sampling."
+
+        return phase_to_indices
+
 
     def load_demo_info(self, filter_by_attribute=None, demos=None, demo_limit=None):
         """
@@ -694,6 +788,23 @@ class SequenceDataset(torch.utils.data.Dataset):
 
         meta["ep"] = demo_id
         return meta
+    
+
+    def get_dataset_batch_sampler(self, batch_size):
+        """
+        Return batch sampler for phase-balanced mini-batches.
+        Used by DataLoader(batch_sampler=...).
+        """
+        if self.sampling_cfg is None: return None
+        if not self.sampling_cfg.get("enabled", False): return None
+        if not self.sampling_cfg.get("balance_batches", False): return None
+        if self.phase_to_indices is None: self.phase_to_indices = self.build_phase_to_indices()
+
+        num_batches = self.sampling_cfg.get("num_batches", None)
+        if num_batches is None: num_batches = len(self) // batch_size
+
+        return PhaseBalancedBatchSampler(phase_to_indices=self.phase_to_indices, batch_size=batch_size, num_batches=num_batches, drop_last=self.sampling_cfg.get("drop_last", True),)
+    
 
     def get_dataset_sampler(self):
         """
@@ -704,6 +815,66 @@ class SequenceDataset(torch.utils.data.Dataset):
         `DataLoader` documentation, for more info.
         """
         return None
+
+
+class PhaseBalancedBatchSampler(torch.utils.data.Sampler):
+    """
+    Phase-balanced batch sampler.
+
+    Args:
+        phase_to_indices (dict):
+            phase_id -> np.ndarray or list of dataset indices
+        batch_size (int):
+            number of samples per mini-batch
+        num_batches (int):
+            number of mini-batches per epoch
+        drop_last (bool):
+            if True, only yield full-size batches
+
+    Usage:
+        batch_sampler = PhaseBalancedBatchSampler(...)
+        loader = DataLoader(dataset, batch_sampler=batch_sampler, num_workers=...)
+    """
+
+    def __init__(self, phase_to_indices, batch_size, num_batches, drop_last=True):
+        self.phase_to_indices = {int(k): np.asarray(v, dtype=np.int64) for k, v in phase_to_indices.items() if len(v) > 0}
+        self.phase_ids = sorted(list(self.phase_to_indices.keys()))
+        self.batch_size = int(batch_size)
+        self.num_batches = int(num_batches)
+        self.drop_last = bool(drop_last)
+
+        assert len(self.phase_ids) > 0, "PhaseBalancedBatchSampler received empty phases."
+        assert self.batch_size > 0, "batch_size must be positive."
+        assert self.num_batches > 0, "num_batches must be positive."
+        assert self.batch_size >= len(self.phase_ids), "batch_size must be >= number of non-empty phases."
+
+    def __iter__(self):
+        num_phases = len(self.phase_ids)
+        base_num = self.batch_size // num_phases
+        remainder = self.batch_size % num_phases
+
+        for _ in range(self.num_batches):
+            batch = []
+            phase_order = list(self.phase_ids)
+            random.shuffle(phase_order)
+
+            for i, phase_id in enumerate(phase_order):
+                num_samples = base_num + (1 if i < remainder else 0)
+                indices = self.phase_to_indices[phase_id]
+                replace = len(indices) < num_samples
+                sampled = np.random.choice(indices, size=num_samples, replace=replace)
+                batch.extend(sampled.tolist())
+
+            random.shuffle(batch)
+
+            if len(batch) == self.batch_size:
+                yield batch
+            elif not self.drop_last and len(batch) > 0:
+                yield batch
+
+    def __len__(self):
+        return self.num_batches
+    
 
 
 class CustomWeightedRandomSampler(torch.utils.data.WeightedRandomSampler):
@@ -796,6 +967,36 @@ class MetaDataset(torch.utils.data.Dataset):
     def __repr__(self):
         str_output = '\n'.join([ds.__repr__() for ds in self.datasets])
         return str_output
+
+
+    def get_dataset_batch_sampler(self, batch_size):
+        """
+        Return phase-balanced batch sampler for MetaDataset.
+        Merges phase index pools from child datasets with global offsets.
+        """
+        merged_phase_to_indices = dict()
+
+        for ds_i, dataset in enumerate(self.datasets):
+            if not hasattr(dataset, "sampling_cfg") or dataset.sampling_cfg is None:return None
+            if not dataset.sampling_cfg.get("enabled", False): return None
+            if not dataset.sampling_cfg.get("balance_batches", False):return None
+            if dataset.phase_to_indices is None: dataset.phase_to_indices = dataset.build_phase_to_indices()
+
+            offset = self._ds_ind_bins[ds_i]
+            for phase_id, indices in dataset.phase_to_indices.items():
+                if phase_id not in merged_phase_to_indices:
+                    merged_phase_to_indices[phase_id] = []
+                merged_phase_to_indices[phase_id].extend((indices + offset).tolist())
+
+        merged_phase_to_indices = {k: np.array(v, dtype=np.int64) for k, v in merged_phase_to_indices.items() if len(v) > 0}
+
+        if len(merged_phase_to_indices) == 0: return None
+
+        cfg = self.datasets[0].sampling_cfg
+        num_batches = cfg.get("num_batches", None)
+        if num_batches is None: num_batches = len(self) // batch_size
+
+        return PhaseBalancedBatchSampler(phase_to_indices=merged_phase_to_indices, batch_size=batch_size, num_batches=num_batches, drop_last=cfg.get("drop_last", True),)
 
     def get_dataset_sampler(self):
         weights = np.ones(len(self))

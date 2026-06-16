@@ -47,6 +47,13 @@ class SPADConfig(BaseConfig):
 
         # SPAD parameters
         self.algo.spad.enabled = True
+        self.algo.importance_score.enabled = False
+
+        # sampling parameters
+        self.algo.sampling.enabled = True
+        self.algo.sampling.balance_batches = True
+        self.algo.sampling.drop_last = True
+        self.algo.sampling.num_batches = None
 
         # action encoder
         self.algo.spad.action_embed_dim = 512

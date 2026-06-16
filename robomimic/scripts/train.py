@@ -174,14 +174,23 @@ def train(config, device, resume=False):
     action_normalization_stats = trainset.get_action_normalization_stats()
 
     # initialize data loaders
-    train_loader = DataLoader(
-        dataset=trainset,
-        sampler=train_sampler,
-        batch_size=config.train.batch_size,
-        shuffle=(train_sampler is None),
-        num_workers=config.train.num_data_workers,
-        drop_last=True
-    )
+    train_batch_sampler = trainset.get_dataset_batch_sampler(config.train.batch_size) if hasattr(trainset, "get_dataset_batch_sampler") else None
+
+    if train_batch_sampler is not None:
+        train_loader = DataLoader(
+            dataset=trainset,
+            batch_sampler=train_batch_sampler,
+            num_workers=config.train.num_data_workers,
+        )
+    else:
+        train_loader = DataLoader(
+            dataset=trainset,
+            sampler=train_sampler,
+            batch_size=config.train.batch_size,
+            shuffle=(train_sampler is None),
+            num_workers=config.train.num_data_workers,
+            drop_last=True,
+        )
 
     if config.experiment.validate:
         # cap num workers for validation dataset at 1
