@@ -15,3 +15,4 @@ from robomimic.algo.act_baseline import ACTBaselinePolicy
 from robomimic.algo.tcca import TCCAPolicy
 from robomimic.algo.drcan import DRCANPolicy
 from robomimic.algo.epil import EPILPolicy
+from robomimic.algo.spad import SPADPolicy

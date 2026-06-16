@@ -180,8 +180,8 @@ class SPADPolicy(PolicyAlgo):
         Tp = self.algo_config.horizon.prediction_horizon
 
 
-        phase_ids = batch["phase_id"]
-        phase_progress = batch["phase_ratio"]
+        phase_ids = batch["phase_labels"]
+        phase_progress = batch["phase_percentages"]
         if phase_ids.ndim == 3: phase_ids = phase_ids[:, 0, 0]
         elif phase_ids.ndim == 2: phase_ids = phase_ids[:, 0]
         if phase_progress.ndim == 3: phase_progress = phase_progress[:, 0, 0]
