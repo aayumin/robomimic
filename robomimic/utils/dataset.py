@@ -18,6 +18,23 @@ import robomimic.utils.python_utils as PyUtils
 import robomimic.utils.log_utils as LogUtils
 import robomimic.utils.lang_utils as LangUtils
 
+class MemoryAugmentedHDF5:
+    def __init__(self, hdf5_path, swmr=True):
+        self.file = h5py.File(hdf5_path, 'r', swmr=swmr, libver='latest')
+        self.temp_data = {}
+
+    def add_temporary_data(self, new_key, new_data):
+        self.temp_data[new_key] = np.array(new_data)
+
+    def __getitem__(self, key):
+        if key in self.temp_data:
+            return self.temp_data[key]
+        return self.file[key]
+
+    def close(self):
+        self.file.close()
+        self.temp_data.clear() 
+
 
 class SequenceDataset(torch.utils.data.Dataset):
     def __init__(
@@ -206,17 +223,13 @@ class SequenceDataset(torch.utils.data.Dataset):
         if self.sampling_cfg is not None:
             self.sampling_enabled = self.sampling_cfg.get("enabled", False)
             self.default_num_phases = self.sampling_cfg.get("default_num_phases", 3)
-            self.use_hdf5_phase_labels = self.check_hdf5_phase_labels_exist()
+            self.default_phase_boundaries = np.linspace(0.0, 1.0, self.default_num_phases + 1, dtype=np.float32)
 
-            if self.use_hdf5_phase_labels:
-                self.num_phases = self.infer_num_phases_from_hdf5()
-                self.phase_boundaries = None
-            else:
-                self.num_phases = 3
-                self.phase_boundaries = np.linspace(0.0, 1.0, self.num_phases + 1, dtype=np.float32)
 
-            if self.sampling_enabled:
-                self.phase_to_indices = self.build_phase_to_indices()
+            self.check_hdf5_phase_labels_exist()
+            self.num_phases = self.infer_num_phases_from_hdf5()
+        
+            if self.sampling_enabled: self.phase_to_indices = self.build_phase_to_indices()
 
         # augmentation config
         self.augmentation_config = augmentation_config
@@ -227,10 +240,36 @@ class SequenceDataset(torch.utils.data.Dataset):
     def check_hdf5_phase_labels_exist(self):
         for ep in self.demos:
             if self.phase_ids_key not in self.hdf5_file["data/{}".format(ep)]:
-                return False
-            # if self.phase_progress_key not in self.hdf5_file["data/{}".format(ep)]:
-            #     return False
+                phase_id_arr, phase_progress_arr = self.make_default_phase_info(ep)
+                self.hdf5_file.add_temporary_data(f"data/{ep}/{self.phase_ids_key}", phase_id_arr)
+                self.hdf5_file.add_temporary_data(f"data/{ep}/{self.phase_progress_key}", phase_progress_arr)
+
+            if self.phase_progress_key not in self.hdf5_file["data/{}".format(ep)]:
+                phase_progress_arr = self.make_default_phase_info(ep, progress_only = True)
+                self.hdf5_file.add_temporary_data(f"data/{ep}/{self.phase_progress_key}", phase_progress_arr)
         return True
+
+    def make_default_phase_info(self, demo_id, progress_only = False):
+        demo_length = self._demo_id_to_demo_length[demo_id]
+
+        if progress_only:
+            phase_id = self.hdf5_file[f"data/{demo_id}/{self.phase_ids_key}"][:]
+            phase_progress = np.zeros_like(phase_id, dtype=float)            
+            for p in np.unique(phase_id):
+                mask = (phase_id == p)
+                phase_progress[mask] = np.linspace(0.0, 1.0, np.sum(mask)) if np.sum(mask) > 1 else 1.0
+        else:
+            global_progress = np.linspace(0, 1.0, demo_length)
+            phase_id = np.searchsorted(self.default_phase_boundaries, global_progress, side="right") - 1
+            phase_id = np.clip(phase_id, 0, self.default_num_phases - 1) # shape: (demo_length, )
+
+            phase_start = self.default_phase_boundaries[phase_id]
+            phase_end = self.default_phase_boundaries[phase_id + 1]
+
+            phase_progress = (global_progress - phase_start) / np.maximum(phase_end - phase_start, 1e-8)
+            phase_progress = np.clip(phase_progress, 0.0, 1.0)  # shape: (demo_length, )
+
+            return phase_id, phase_progress
 
 
     def infer_num_phases_from_hdf5(self):
@@ -242,31 +281,18 @@ class SequenceDataset(torch.utils.data.Dataset):
         return int(len(np.unique(phase_ids)))
 
     def get_phase_info(self, demo_id, index_in_demo):
-        if self.use_hdf5_phase_labels:
-            phase_ids = self.get_dataset_for_ep(demo_id, self.phase_ids_key)
-            phase_progress = self.get_dataset_for_ep(demo_id, self.phase_progress_key)
 
-            phase_id = phase_ids[index_in_demo]
-            progress = phase_progress[index_in_demo]
+        phase_ids = self.get_dataset_for_ep(demo_id, self.phase_ids_key)
+        phase_progress = self.get_dataset_for_ep(demo_id, self.phase_progress_key)
 
-            phase_id = int(np.asarray(phase_id).reshape(-1)[0])
-            progress = float(np.asarray(progress).reshape(-1)[0])
-            progress = float(np.clip(progress, 0.0, 1.0))
+        phase_id = phase_ids[index_in_demo]
+        progress = phase_progress[index_in_demo]
 
-            return phase_id, progress
+        phase_id = int(np.asarray(phase_id).reshape(-1)[0])
+        progress = float(np.asarray(progress).reshape(-1)[0])
+        progress = float(np.clip(progress, 0.0, 1.0))
 
-        demo_length = self._demo_id_to_demo_length[demo_id]
-        global_progress = float(index_in_demo) / max(float(demo_length - 1), 1.0)
-
-        phase_id = int(np.searchsorted(self.phase_boundaries[1:], global_progress, side="right"))
-        phase_id = int(np.clip(phase_id, 0, self.num_phases - 1))
-
-        phase_start = float(self.phase_boundaries[phase_id])
-        phase_end = float(self.phase_boundaries[phase_id + 1])
-        phase_progress = (global_progress - phase_start) / max(phase_end - phase_start, 1e-8)
-        phase_progress = float(np.clip(phase_progress, 0.0, 1.0))
-
-        return phase_id, phase_progress
+        return phase_id, progress
 
 
     def build_phase_to_indices(self):
@@ -361,7 +387,9 @@ class SequenceDataset(torch.utils.data.Dataset):
         This property allows for a lazy hdf5 file open.
         """
         if self._hdf5_file is None:
-            self._hdf5_file = h5py.File(self.hdf5_path, 'r', swmr=self.hdf5_use_swmr, libver='latest')
+            # self._hdf5_file = h5py.File(self.hdf5_path, 'r', swmr=self.hdf5_use_swmr, libver='latest')
+            self._hdf5_file = MemoryAugmentedHDF5(self.hdf5_path, self.hdf5_use_swmr)
+            
         return self._hdf5_file
 
     def close_and_delete_hdf5_handle(self):
