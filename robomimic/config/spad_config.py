@@ -54,6 +54,7 @@ class SPADConfig(BaseConfig):
         self.algo.sampling.balance_batches = True
         self.algo.sampling.drop_last = True
         self.algo.sampling.num_batches = None
+        self.algo.sampling.default_num_phases = 3
 
         # action encoder
         self.algo.spad.action_embed_dim = 512
