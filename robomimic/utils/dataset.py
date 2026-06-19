@@ -30,6 +30,14 @@ class MemoryAugmentedHDF5:
         if key in self.temp_data:
             return self.temp_data[key]
         return self.file[key]
+    
+    def check_key_exists(self, key):
+        if key in self.temp_data.keys(): return True
+        try: 
+            self.file[key]
+            return True
+        except: pass
+        return False
 
     def close(self):
         self.file.close()
@@ -171,6 +179,22 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.action_normalization_stats = None
 
 
+        # sampling config
+        self.sampling_cfg = sampling_cfg
+        self.sampling_enabled = False
+        self.phase_boundaries = None
+        self.phase_to_indices = None
+        self.phase_ids_key = "phase_labels"
+        self.phase_progress_key = "phase_percentages"
+
+        if self.sampling_cfg is not None:
+            self.sampling_enabled = self.sampling_cfg.get("enabled", False)
+            self.default_num_phases = self.sampling_cfg.get("default_num_phases", 3)
+            self.default_phase_boundaries = np.linspace(0.0, 1.0, self.default_num_phases + 1, dtype=np.float32)
+            self.check_hdf5_phase_labels_exist()
+            self.num_phases = self.infer_num_phases_from_hdf5()
+            if self.sampling_enabled: self.phase_to_indices = self.build_phase_to_indices()
+
 
         # maybe store dataset in memory for fast access
         if self.hdf5_cache_mode in ["all", "low_dim"]:
@@ -182,6 +206,7 @@ class SequenceDataset(torch.utils.data.Dataset):
                     if ObsUtils.key_is_obs_modality(k, "low_dim"):
                         obs_keys_in_memory.append(k)
             self.obs_keys_in_memory = obs_keys_in_memory
+
 
             self.hdf5_cache = self.load_dataset_in_memory(
                 demo_list=self.demos,
@@ -212,25 +237,6 @@ class SequenceDataset(torch.utils.data.Dataset):
             self.sim_gating_stride = sim_gating_cfg.get("temporal_stride", 1)
             
 
-        # sampling config
-        self.sampling_cfg = sampling_cfg
-        self.sampling_enabled = False
-        self.phase_boundaries = None
-        self.phase_to_indices = None
-        self.phase_ids_key = "phase_labels"
-        self.phase_progress_key = "phase_percentages"
-
-        if self.sampling_cfg is not None:
-            self.sampling_enabled = self.sampling_cfg.get("enabled", False)
-            self.default_num_phases = self.sampling_cfg.get("default_num_phases", 3)
-            self.default_phase_boundaries = np.linspace(0.0, 1.0, self.default_num_phases + 1, dtype=np.float32)
-
-
-            self.check_hdf5_phase_labels_exist()
-            self.num_phases = self.infer_num_phases_from_hdf5()
-        
-            if self.sampling_enabled: self.phase_to_indices = self.build_phase_to_indices()
-
         # augmentation config
         self.augmentation_config = augmentation_config
 
@@ -239,25 +245,30 @@ class SequenceDataset(torch.utils.data.Dataset):
 
     def check_hdf5_phase_labels_exist(self):
         for ep in self.demos:
-            if self.phase_ids_key not in self.hdf5_file["data/{}".format(ep)]:
+            if self.phase_ids_key not in self._hdf5_file["data/{}".format(ep)]:
                 phase_id_arr, phase_progress_arr = self.make_default_phase_info(ep)
-                self.hdf5_file.add_temporary_data(f"data/{ep}/{self.phase_ids_key}", phase_id_arr)
-                self.hdf5_file.add_temporary_data(f"data/{ep}/{self.phase_progress_key}", phase_progress_arr)
+                self._hdf5_file.add_temporary_data(f"data/{ep}/{self.phase_ids_key}", phase_id_arr)
+                self._hdf5_file.add_temporary_data(f"data/{ep}/{self.phase_progress_key}", phase_progress_arr)
 
-            if self.phase_progress_key not in self.hdf5_file["data/{}".format(ep)]:
+
+            if self.phase_progress_key not in self._hdf5_file["data/{}".format(ep)]:
                 phase_progress_arr = self.make_default_phase_info(ep, progress_only = True)
-                self.hdf5_file.add_temporary_data(f"data/{ep}/{self.phase_progress_key}", phase_progress_arr)
+                self._hdf5_file.add_temporary_data(f"data/{ep}/{self.phase_progress_key}", phase_progress_arr)
+
+
         return True
 
     def make_default_phase_info(self, demo_id, progress_only = False):
         demo_length = self._demo_id_to_demo_length[demo_id]
 
         if progress_only:
-            phase_id = self.hdf5_file[f"data/{demo_id}/{self.phase_ids_key}"][:]
+            phase_id = self._hdf5_file[f"data/{demo_id}/{self.phase_ids_key}"][:]
             phase_progress = np.zeros_like(phase_id, dtype=float)            
             for p in np.unique(phase_id):
                 mask = (phase_id == p)
                 phase_progress[mask] = np.linspace(0.0, 1.0, np.sum(mask)) if np.sum(mask) > 1 else 1.0
+
+            return phase_progress
         else:
             global_progress = np.linspace(0, 1.0, demo_length)
             phase_id = np.searchsorted(self.default_phase_boundaries, global_progress, side="right") - 1
@@ -275,21 +286,17 @@ class SequenceDataset(torch.utils.data.Dataset):
     def infer_num_phases_from_hdf5(self):
         phase_ids = []
         for ep in self.demos:
-            phase_arr = self.hdf5_file["data/{}/{}".format(ep, self.phase_ids_key)][()]
+            phase_arr = self._hdf5_file["data/{}/{}".format(ep, self.phase_ids_key)][()]
             phase_ids.append(phase_arr.reshape(-1))
         phase_ids = np.concatenate(phase_ids, axis=0).astype(np.int64)
         return int(len(np.unique(phase_ids)))
 
     def get_phase_info(self, demo_id, index_in_demo):
 
-        phase_ids = self.get_dataset_for_ep(demo_id, self.phase_ids_key)
-        phase_progress = self.get_dataset_for_ep(demo_id, self.phase_progress_key)
-
-        phase_id = phase_ids[index_in_demo]
-        progress = phase_progress[index_in_demo]
-
-        phase_id = int(np.asarray(phase_id).reshape(-1)[0])
-        progress = float(np.asarray(progress).reshape(-1)[0])
+        phase_id = self._hdf5_file[f"data/{demo_id}/{self.phase_ids_key}"][index_in_demo]
+        progress = self._hdf5_file[f"data/{demo_id}/{self.phase_progress_key}"][index_in_demo]
+      
+        phase_id = int(phase_id)
         progress = float(np.clip(progress, 0.0, 1.0))
 
         return phase_id, progress
@@ -454,20 +461,21 @@ class SequenceDataset(torch.utils.data.Dataset):
         Returns:
             all_data (dict): dictionary of loaded data.
         """
+
+
         all_data = dict()
         print("SequenceDataset: loading dataset into memory...")
         for ep in LogUtils.custom_tqdm(demo_list):
             all_data[ep] = {}
             all_data[ep]["attrs"] = {}
             all_data[ep]["attrs"]["num_samples"] = hdf5_file["data/{}".format(ep)].attrs["num_samples"]
-            # get obs
             all_data[ep]["obs"] = {k: hdf5_file["data/{}/obs/{}".format(ep, k)][()] for k in obs_keys}        
 
             if load_next_obs:
                 all_data[ep]["next_obs"] = {k: hdf5_file["data/{}/next_obs/{}".format(ep, k)][()] for k in obs_keys}
-            # get other dataset keys
             for k in dataset_keys:
-                if k in hdf5_file["data/{}".format(ep)]:
+                # if k in hdf5_file["data/{}".format(ep)]:
+                if hdf5_file.check_key_exists(f"data/{ep}/{k}"):
                     all_data[ep][k] = hdf5_file["data/{}/{}".format(ep, k)][()].astype('float32')
                 else:
                     all_data[ep][k] = np.zeros((all_data[ep]["attrs"]["num_samples"], 1), dtype=np.float32)
@@ -559,6 +567,7 @@ class SequenceDataset(torch.utils.data.Dataset):
 
         # check if this key should be in memory
         key_should_be_in_memory = (self.hdf5_cache_mode in ["all", "low_dim"])
+
         if key_should_be_in_memory:
             # if key is an observation, it may not be in memory
             if '/' in key:
@@ -566,7 +575,7 @@ class SequenceDataset(torch.utils.data.Dataset):
                 assert(key1 in ['obs', 'next_obs', 'action_dict'])
                 if key2 not in self.obs_keys_in_memory:
                     key_should_be_in_memory = False
-
+        
         if key_should_be_in_memory:
             # read cache
             if '/' in key:
@@ -579,6 +588,7 @@ class SequenceDataset(torch.utils.data.Dataset):
             # read from file
             hd5key = "data/{}/{}".format(ep, key)
             ret = self.hdf5_file[hd5key]
+
         return ret
 
     def __getitem__(self, index):
@@ -773,6 +783,9 @@ class SequenceDataset(torch.utils.data.Dataset):
         Returns:
             a dictionary of extracted items.
         """
+
+    
+
         data, pad_mask = self.get_sequence_from_demo(
             demo_id,
             index_in_demo=index_in_demo,
