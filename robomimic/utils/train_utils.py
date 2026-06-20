@@ -279,44 +279,69 @@ def batchify_obs(obs_list):
     
     return obs
 
+
+
 def save_embedding_umap(model, data_loader, save_dir, epoch, embedding_type="obs", max_points=5000, use_obs_cond=False):
+    assert embedding_type in ["obs", "action", "obs_action_project"]
+
     was_training = model.nets.training
     model.nets.eval()
 
     embeddings = []
     phase_ids = []
+    modality_ids = []
+
+
 
     with torch.no_grad():
         for batch in tqdm(data_loader, desc=f"[save {embedding_type} embedding UMAP]"):
             batch = model.process_batch_for_training(batch)
 
-            if embedding_type == "obs":
-                embedding = model.get_obs_embedding_for_umap(
-                    batch=batch,
-                    use_obs_cond=use_obs_cond,
-                )
-            elif embedding_type == "action":
-                embedding = model.get_action_embedding_for_umap(batch=batch)
-            else:
-                raise ValueError("Unsupported embedding_type: {}".format(embedding_type))
-
-            embeddings.append(embedding.detach().cpu().numpy())
-
             if "phase_ids" in batch:
                 phase = batch["phase_ids"]
-                if phase.ndim > 1:
-                    phase = phase[:, 0]
-                phase_ids.append(phase.detach().cpu().numpy().reshape(-1))
+                if phase.ndim > 1: phase = phase[:, 0]
+                phase = phase.detach().cpu().numpy().reshape(-1)
+            else: phase = None
+
+
+            # embedding types
+            if embedding_type == "obs":
+                embedding = model.get_obs_embedding_for_umap(batch=batch, use_obs_cond=use_obs_cond)
+                embeddings.append(embedding.detach().cpu().numpy())
+                if phase is not None: phase_ids.append(phase)
+
+            elif embedding_type == "action":
+                embedding = model.get_action_embedding_for_umap(batch=batch)
+                embeddings.append(embedding.detach().cpu().numpy())
+                if phase is not None: phase_ids.append(phase)
+
+            elif embedding_type == "obs_action_project":
+                z_o, z_a = model.get_projected_embeddings_for_umap(batch=batch)
+                z_o = z_o.detach().cpu().numpy()
+                z_a = z_a.detach().cpu().numpy()
+
+                embedding = np.concatenate([z_o, z_a], axis=0)
+                embeddings.append(embedding)
+                if phase is not None: phase_ids.append(np.concatenate([phase, phase], axis=0))
+
+                modality_ids.append(
+                    np.concatenate([
+                        np.zeros(z_o.shape[0], dtype=np.int64),  # 0 = obs
+                        np.ones(z_a.shape[0], dtype=np.int64),   # 1 = action
+                    ], axis=0)
+                )
 
             if sum(x.shape[0] for x in embeddings) >= max_points:
                 break
 
-    embeddings = np.concatenate(embeddings, axis=0)[:max_points]
 
-    if len(phase_ids) > 0:
-        phase_ids = np.concatenate(phase_ids, axis=0)[:max_points]
-    else:
-        phase_ids = None
+    embeddings = np.concatenate(embeddings, axis=0)[:max_points]
+    if len(phase_ids) > 0: phase_ids = np.concatenate(phase_ids, axis=0)[:max_points]
+    else: phase_ids = None
+    if len(modality_ids) > 0: modality_ids = np.concatenate(modality_ids, axis=0)[:max_points]
+    else: modality_ids = None
+
+
 
     reducer = umap.UMAP(
         n_neighbors=30,
@@ -333,28 +358,58 @@ def save_embedding_umap(model, data_loader, save_dir, epoch, embedding_type="obs
         embedding=embeddings,
         umap=emb_2d,
         phase_ids=phase_ids,
+        modality_ids=modality_ids,
     )
-
-    plt.figure(figsize=(7, 6))
-
+    
     if phase_ids is not None:
-        # plt.scatter(emb_2d[:, 0], emb_2d[:, 1], c=phase_ids, s=4, cmap="tab10")
-        # cbar = plt.colorbar(label="phase_ids")
+        unique_phases = np.sort(np.unique(phase_ids).astype(np.int64))
+        cmap = plt.get_cmap("tab10", len(unique_phases))
+        bounds = np.arange(len(unique_phases) + 1) - 0.5
+        norm = mcolors.BoundaryNorm(bounds, cmap.N)
 
-        v = np.sort(np.unique(phase_ids))
-        cmap = plt.get_cmap("viridis", len(v))
-        norm = mcolors.BoundaryNorm(np.append(v - 0.5, v[-1] + 0.5), cmap.N)
-        sc = plt.scatter(emb_2d[:, 0], emb_2d[:, 1], c=phase_ids, cmap=cmap, norm=norm, s=4)
-        plt.colorbar(sc, ticks=v, label="phase_ids")
+        phase_to_color_id = {phase_id: i for i, phase_id in enumerate(unique_phases)}
+        color_ids = np.array([phase_to_color_id[int(p)] for p in phase_ids], dtype=np.int64)
 
-        
-    else:
+        plt.figure(figsize=(7, 6))
+        sc = plt.scatter(
+            emb_2d[:, 0],
+            emb_2d[:, 1],
+            c=color_ids,
+            s=4,
+            cmap=cmap,
+            norm=norm,
+        )
+
+        cbar = plt.colorbar(sc, ticks=np.arange(len(unique_phases)))
+        cbar.ax.set_yticklabels([str(p) for p in unique_phases])
+        cbar.set_label("phase_ids")
+
+        plt.title("{} UMAP by Phase - Epoch {}".format(embedding_type, epoch))
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_dir, "{}_umap_phase_epoch_{}.png".format(embedding_type, epoch)), dpi=200)
+        plt.close()
+
+    if modality_ids is not None:
+        plt.figure(figsize=(7, 6))
+        obs_mask = modality_ids == 0
+        act_mask = modality_ids == 1
+
+        plt.scatter(emb_2d[obs_mask, 0], emb_2d[obs_mask, 1], s=4, label="obs z_o", alpha=0.7)
+        plt.scatter(emb_2d[act_mask, 0], emb_2d[act_mask, 1], s=4, label="action z_a", alpha=0.7)
+
+        plt.legend()
+        plt.title("{} UMAP by Modality - Epoch {}".format(embedding_type, epoch))
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_dir, "{}_umap_modality_epoch_{}.png".format(embedding_type, epoch)), dpi=200)
+        plt.close()
+
+    if phase_ids is None and modality_ids is None:
+        plt.figure(figsize=(7, 6))
         plt.scatter(emb_2d[:, 0], emb_2d[:, 1], s=4)
-
-    plt.title("{} Embedding UMAP - Epoch {}".format(embedding_type, epoch))
-    plt.tight_layout()
-    plt.savefig(os.path.join(save_dir, "{}_umap_epoch_{}.png".format(embedding_type, epoch)), dpi=200)
-    plt.close()
+        plt.title("{} UMAP - Epoch {}".format(embedding_type, epoch))
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_dir, "{}_umap_epoch_{}.png".format(embedding_type, epoch)), dpi=200)
+        plt.close()
 
     if was_training:
         model.nets.train()

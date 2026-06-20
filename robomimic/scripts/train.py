@@ -390,7 +390,6 @@ def train(config, device, resume=False):
                 action_normalization_stats=action_normalization_stats,
             )
 
-
             TrainUtils.save_embedding_umap(
                     model=model,
                     data_loader=valid_loader if valid_loader is not None else train_loader,
@@ -400,14 +399,26 @@ def train(config, device, resume=False):
                     max_points=5000,
                     use_obs_cond=False,
             )
-            TrainUtils.save_embedding_umap(
-                model=model,
-                data_loader=valid_loader if valid_loader is not None else train_loader,
-                save_dir=os.path.join(log_dir, "umap"),
-                epoch=epoch,
-                embedding_type="action",
-                max_points=5000,
-            )
+
+            if "action_encoder" in model.nets["policy"]:
+                TrainUtils.save_embedding_umap(
+                    model=model,
+                    data_loader=valid_loader if valid_loader is not None else train_loader,
+                    save_dir=os.path.join(log_dir, "umap"),
+                    epoch=epoch,
+                    embedding_type="action",
+                    max_points=5000,
+                )
+            
+            if "obs_projection" in model.nets["policy"] and "action_projection" in model.nets["policy"]:
+                TrainUtils.save_embedding_umap(
+                    model=model,
+                    data_loader=valid_loader if valid_loader is not None else train_loader,
+                    save_dir=os.path.join(log_dir, "umap"),
+                    epoch=epoch,
+                    embedding_type="obs_action_project",
+                    max_points=5000,
+                )
 
             num_episodes = config.experiment.rollout.n
             all_rollout_logs, video_paths = TrainUtils.rollout_with_stats(
