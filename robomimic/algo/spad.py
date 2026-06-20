@@ -206,7 +206,11 @@ class SPADPolicy(PolicyAlgo):
                 raise ValueError("'actions' must be in range [-1, 1] for Diffusion Policy! Check if hdf5_normalize_action is enabled.")
             self.action_check_done = True
 
-        return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
+
+        input_batch = TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
+        input_batch["phase_ids"] = input_batch["phase_ids"].long()
+        return input_batch
+        # return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
 
 
         

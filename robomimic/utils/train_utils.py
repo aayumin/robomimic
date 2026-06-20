@@ -13,6 +13,10 @@ import imageio
 import numpy as np
 from copy import deepcopy
 from collections import OrderedDict
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import umap
 
 import torch
 
@@ -274,6 +278,87 @@ def batchify_obs(obs_list):
     }
     
     return obs
+
+def save_embedding_umap(model, data_loader, save_dir, epoch, embedding_type="obs", max_points=5000, use_obs_cond=False):
+    was_training = model.nets.training
+    model.nets.eval()
+
+    embeddings = []
+    phase_ids = []
+
+    with torch.no_grad():
+        for batch in tqdm(data_loader, desc=f"[save {embedding_type} embedding UMAP]"):
+            batch = model.process_batch_for_training(batch)
+
+            if embedding_type == "obs":
+                embedding = model.get_obs_embedding_for_umap(
+                    batch=batch,
+                    use_obs_cond=use_obs_cond,
+                )
+            elif embedding_type == "action":
+                embedding = model.get_action_embedding_for_umap(batch=batch)
+            else:
+                raise ValueError("Unsupported embedding_type: {}".format(embedding_type))
+
+            embeddings.append(embedding.detach().cpu().numpy())
+
+            if "phase_ids" in batch:
+                phase = batch["phase_ids"]
+                if phase.ndim > 1:
+                    phase = phase[:, 0]
+                phase_ids.append(phase.detach().cpu().numpy().reshape(-1))
+
+            if sum(x.shape[0] for x in embeddings) >= max_points:
+                break
+
+    embeddings = np.concatenate(embeddings, axis=0)[:max_points]
+
+    if len(phase_ids) > 0:
+        phase_ids = np.concatenate(phase_ids, axis=0)[:max_points]
+    else:
+        phase_ids = None
+
+    reducer = umap.UMAP(
+        n_neighbors=30,
+        min_dist=0.1,
+        metric="cosine",
+        random_state=0,
+    )
+    emb_2d = reducer.fit_transform(embeddings)
+
+    os.makedirs(save_dir, exist_ok=True)
+
+    np.savez(
+        os.path.join(save_dir, "{}_umap_epoch_{}.npz".format(embedding_type, epoch)),
+        embedding=embeddings,
+        umap=emb_2d,
+        phase_ids=phase_ids,
+    )
+
+    plt.figure(figsize=(7, 6))
+
+    if phase_ids is not None:
+        # plt.scatter(emb_2d[:, 0], emb_2d[:, 1], c=phase_ids, s=4, cmap="tab10")
+        # cbar = plt.colorbar(label="phase_ids")
+
+        v = np.sort(np.unique(phase_ids))
+        cmap = plt.get_cmap("viridis", len(v))
+        norm = mcolors.BoundaryNorm(np.append(v - 0.5, v[-1] + 0.5), cmap.N)
+        sc = plt.scatter(emb_2d[:, 0], emb_2d[:, 1], c=phase_ids, cmap=cmap, norm=norm, s=4)
+        plt.colorbar(sc, ticks=v, label="phase_ids")
+
+        
+    else:
+        plt.scatter(emb_2d[:, 0], emb_2d[:, 1], s=4)
+
+    plt.title("{} Embedding UMAP - Epoch {}".format(embedding_type, epoch))
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_dir, "{}_umap_epoch_{}.png".format(embedding_type, epoch)), dpi=200)
+    plt.close()
+
+    if was_training:
+        model.nets.train()
+
 
 
 def run_rollout(

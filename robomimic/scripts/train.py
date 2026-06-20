@@ -358,6 +358,7 @@ def train(config, device, resume=False):
                     num_steps=valid_num_steps,
                     obs_normalization_stats=obs_normalization_stats,
                 )
+                
             for k, v in step_log.items():
                 if k.startswith("Time_"):
                     data_logger.record("Timing_Stats/Valid_{}".format(k[5:]), v, epoch)
@@ -387,6 +388,25 @@ def train(config, device, resume=False):
                 model,
                 obs_normalization_stats=obs_normalization_stats,
                 action_normalization_stats=action_normalization_stats,
+            )
+
+
+            TrainUtils.save_embedding_umap(
+                    model=model,
+                    data_loader=valid_loader if valid_loader is not None else train_loader,
+                    save_dir=os.path.join(log_dir, "umap"),
+                    epoch=epoch,
+                    embedding_type="obs",
+                    max_points=5000,
+                    use_obs_cond=False,
+            )
+            TrainUtils.save_embedding_umap(
+                model=model,
+                data_loader=valid_loader if valid_loader is not None else train_loader,
+                save_dir=os.path.join(log_dir, "umap"),
+                epoch=epoch,
+                embedding_type="action",
+                max_points=5000,
             )
 
             num_episodes = config.experiment.rollout.n
