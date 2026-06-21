@@ -68,6 +68,7 @@ import argparse
 import imageio
 import numpy as np
 import random
+import time
 
 import robomimic
 import robomimic.utils.obs_utils as ObsUtils
@@ -146,6 +147,7 @@ def playback_trajectory_with_env(
         # on-screen render
         if render:
             env.render(mode="human", camera_name=camera_names[0])
+            time.sleep(0.01)
 
         # video render
         if write_video:
@@ -364,7 +366,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--video_skip",
         type=int,
-        default=5,
+        # default=5,
+        default=1,
         help="render frames to video every n steps",
     )
 
