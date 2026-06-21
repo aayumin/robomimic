@@ -295,7 +295,9 @@ def save_embedding_umap(model, data_loader, save_dir, epoch, embedding_type="obs
 
     with torch.no_grad():
         for batch in tqdm(data_loader, desc=f"[save {embedding_type} embedding UMAP]"):
+            To = model.algo_config.horizon.observation_horizon
             batch = model.process_batch_for_training(batch)
+            batch["obs"] = {k: batch["obs"][k][:, :To, :] for k in batch["obs"]}
 
             if "phase_ids" in batch:
                 phase = batch["phase_ids"]
