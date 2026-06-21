@@ -137,12 +137,26 @@ class DiffusionPolicyUNet(PolicyAlgo):
         Ta = self.algo_config.horizon.action_horizon
         Tp = self.algo_config.horizon.prediction_horizon
 
+
+
+
+        phase_ids = batch["phase_labels"]
+        phase_progress = batch["phase_percentages"]
+        if phase_ids.ndim == 3: phase_ids = phase_ids[:, 0, 0]
+        elif phase_ids.ndim == 2: phase_ids = phase_ids[:, 0]
+        if phase_progress.ndim == 3: phase_progress = phase_progress[:, 0, 0]
+        elif phase_progress.ndim == 2: phase_progress = phase_progress[:, 0]
+
+
+
         input_batch = dict()
         input_batch["obs"] = {k: batch["obs"][k][:, :To, :] for k in batch["obs"]}
         input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
         input_batch["actions"] = batch["actions"][:, :Tp, :]
-        if self.algo_config.importance_score.enabled:
-            input_batch["importance_score"] = batch["importance_score"][:, :Tp]
+        input_batch["phase_ids"] = phase_ids.to(self.device).long()
+        input_batch["phase_progress"] = phase_progress.to(self.device).float()
+        if self.algo_config.importance_score.enabled: input_batch["importance_score"] = batch["importance_score"][:, :Tp]
+
 
         # check if actions are normalized to [-1,1]
         if not self.action_check_done:
@@ -153,7 +167,11 @@ class DiffusionPolicyUNet(PolicyAlgo):
                 raise ValueError("'actions' must be in range [-1,1] for Diffusion Policy! Check if hdf5_normalize_action is enabled.")
             self.action_check_done = True
         
-        return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
+        # return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
+
+        input_batch = TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
+        input_batch["phase_ids"] = input_batch["phase_ids"].long()
+        return input_batch
         
     def train_on_batch(self, batch, epoch, validate=False):
         """

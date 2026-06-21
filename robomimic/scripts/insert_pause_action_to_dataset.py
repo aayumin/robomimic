@@ -28,6 +28,7 @@ from tqdm import tqdm
 .  .  .  .  robot0_joint_vel:  (127, 7)
 .  .  .  rewards:  (127,)
 .  .  .  states:  (127, 45)
+.  .  .  phase_labels:  (127, )   <--- maybe new element
 
 '''
 
@@ -111,8 +112,6 @@ def process_demo(demo, min_len, max_len, min_iter, max_iter):
     org_epi_len = demo["actions"].shape[0]
     cur_epi_len = org_epi_len
     num_iter = np.random.randint(min_iter, max_iter + 1)
-
-    # temp # debug
     pause_meta_info = np.zeros(org_epi_len)
 
     for _ in range(num_iter):
@@ -121,17 +120,9 @@ def process_demo(demo, min_len, max_len, min_iter, max_iter):
 
         demo = insert_pause_once(demo, pause_start, pause_duration)
         cur_epi_len += pause_duration
-
-        # temp # debug
         pause_meta_info = np.concatenate([ pause_meta_info[:pause_start],  np.ones(pause_duration),  pause_meta_info[pause_start:] ], axis=0)
-        
 
-
-    # print("check new demo ( '=' means repeated frames )")
-    # for is_pause in pause_meta_info:
-    #     if is_pause: print("=", end="")
-    #     else: print(".", end="")
-    # print()
+    demo["phase_labels"] = pause_meta_info
 
 
     return demo
