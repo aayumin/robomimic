@@ -74,7 +74,6 @@ class PPCCPolicy(PolicyAlgo):
         To = self.algo_config.horizon.observation_horizon
         Tp = self.algo_config.horizon.prediction_horizon
         obs_cond_dim = obs_dim * To
-        action_flat_dim = self.ac_dim * Tp
 
         # Diffusion Policy backbone
         noise_pred_net = PPCCNets.ConditionalUnet1D(
@@ -82,20 +81,7 @@ class PPCCPolicy(PolicyAlgo):
             global_cond_dim=obs_dim*self.algo_config.horizon.observation_horizon
         )
 
-
-        # Action encoder
-        action_embed_dim = getattr(self.algo_config.ppcc, "action_embed_dim", obs_cond_dim)
-        action_encoder = PPCCNets.ActionEncoder(
-            action_dim=action_flat_dim,
-            feature_dim=action_embed_dim,
-            hidden_dims=getattr(self.algo_config.ppcc, "action_hidden_dims", [512, 512]),
-            activation=getattr(self.algo_config.ppcc, "action_activation", "relu"),
-            dropout=getattr(self.algo_config.ppcc, "action_dropout", 0.0),
-            layer_norm=getattr(self.algo_config.ppcc, "action_layer_norm", True),
-            normalize_output=False,
-        )
-
-
+        
         # Projection heads are used only for InfoNCE / soft contrastive losses.
         obs_projection = PPCCNets.ProjectionHead(
             input_dim=obs_cond_dim,
@@ -106,21 +92,11 @@ class PPCCPolicy(PolicyAlgo):
             normalize_output=getattr(self.algo_config.ppcc, "normalize_projection", True),
         )
 
-        action_projection = PPCCNets.ProjectionHead(
-            input_dim=action_embed_dim,
-            output_dim=getattr(self.algo_config.ppcc, "contrast_dim", 128),
-            hidden_dim=getattr(self.algo_config.ppcc, "proj_hidden_dim", 256),
-            activation=getattr(self.algo_config.ppcc, "proj_activation", "relu"),
-            layer_norm=getattr(self.algo_config.ppcc, "proj_layer_norm", True),
-            normalize_output=getattr(self.algo_config.ppcc, "normalize_projection", True),
-        )
 
         nets = nn.ModuleDict({
             "policy": nn.ModuleDict({
                 "obs_encoder": obs_encoder,
-                "action_encoder": action_encoder,
                 "obs_projection": obs_projection,
-                "action_projection": action_projection,
                 "noise_pred_net": noise_pred_net,
             })
         })
@@ -262,76 +238,25 @@ class PPCCPolicy(PolicyAlgo):
             assert obs_features1.ndim == 3  # [B, T, D]
             obs_cond0 = obs_features0.flatten(start_dim=1)
             obs_cond1 = obs_features1.flatten(start_dim=1)
-
-
-            # if epoch < self.algo_config.loss_weight.warmup.epochs :
-            #     # only basic diffusion loss
-            #     noise = torch.randn_like(actions)
-            #     timesteps = torch.randint(0, self.noise_scheduler.config.num_train_timesteps, (B,), device=self.device).long()
-            #     noisy_actions = self.noise_scheduler.add_noise(actions, noise, timesteps)
-            #     noise_pred = self.nets["policy"]["noise_pred_net"](noisy_actions, timesteps, global_cond=obs_cond0)
-            #     diffusion_loss = F.mse_loss(noise_pred, noise)
-            #     loss = diffusion_loss
-
-
-            #     losses = {
-            #         "diffusion_loss": diffusion_loss,
-            #         "total_loss": loss,
-            #     }
-            #     info["losses"] = TensorUtils.detach(losses)
-
-            #     if not validate:
-            #         policy_grad_norms = TorchUtils.backprop_for_loss(net=self.nets, optim=self.optimizers["policy"], loss=loss,)
-            #         if self.ema is not None: self.ema.step(self.nets)
-            #         step_info = {"policy_grad_norms": policy_grad_norms}
-            #         info.update(step_info)
-            #     return info
+            z_o = self.nets["policy"]["obs_projection"](obs_cond0)
         
 
             # pause label
             pause_labels = torch.zeros(B, device=self.device)
             obs_cond_sim = F.cosine_similarity(obs_cond0, obs_cond1, dim=-1)
-            # print(f"\nobs_cond_sim: {obs_cond_sim},  action_norm: {torch.linalg.vector_norm(actions[:, -1, :] - actions[:, 0, :], dim=-1)}")
-            pause_conditions = (obs_cond_sim > 1 - self.algo_config.ppcc.pause_label.epsilon_o) & (
-                torch.linalg.vector_norm(actions[:, -1, :] - actions[:, 0, :], dim=-1) < self.algo_config.ppcc.pause_label.epsilon_a)
-            pause_labels[pause_conditions] = 1.0
+            pause_labels[obs_cond_sim > 1 - self.algo_config.ppcc.pause_label.epsilon_o] = 1.0
 
 
 
-
-            # encode action for contrastive auxiliary learning
-            action_features = self.nets["policy"]["action_encoder"](actions.flatten(start_dim=1))
-            z_o = self.nets["policy"]["obs_projection"](obs_cond0)
-            z_a = self.nets["policy"]["action_projection"](action_features)
-
-            # soft phase-progress contrastive loss
-            target_oa, valid_oa = self._ppcc_build_soft_targets(
-                phase_ids=batch["phase_ids"],
-                phase_progress=batch["phase_progress"],
-                sigma_progress=self.algo_config.ppcc.sigma_progress,
-                exclude_self=False,
-            )
+            # soft phase-progress target
             target_intra, valid_intra = self._ppcc_build_soft_targets(
                 phase_ids=batch["phase_ids"],
                 phase_progress=batch["phase_progress"],
                 sigma_progress=self.algo_config.ppcc.sigma_progress,
-                exclude_self=self.algo_config.ppcc.exclude_self_for_intra_modal,
             )
 
-            # crossmodal contrastive loss
-            loss_oa = self._ppcc_soft_contrastive_loss(z_o, z_a, target_oa, valid_oa & pause_labels.eq(0), self.algo_config.ppcc.temperature, mask_self=False)
-
             # phase contrastive loss
-            if pause_labels.eq(0).sum() >= 2:
-                z_o_np, z_a_np = z_o[pause_labels.eq(0)], z_a[pause_labels.eq(0)]
-                target_intra_np = target_intra[pause_labels.eq(0)][:, pause_labels.eq(0)]
-                row_sum = target_intra_np.sum(dim=1, keepdim=True)
-                valid_intra_np = row_sum.squeeze(1) > 1e-8
-                target_intra_np = target_intra_np / row_sum.clamp_min(1e-8)
-                loss_oo = self._ppcc_soft_contrastive_loss(z_o_np, z_o_np, target_intra_np, valid_intra_np, self.algo_config.ppcc.temperature, mask_self=True)
-                loss_aa = self._ppcc_soft_contrastive_loss(z_a_np, z_a_np, target_intra_np, valid_intra_np, self.algo_config.ppcc.temperature, mask_self=True)
-            else:
-                loss_oo, loss_aa = z_o.sum() * 0.0, z_a.sum() * 0.0
+            phase_contrastive_loss_per_sample = self._ppcc_soft_contrastive_loss(z_o, z_o, target_intra, valid_mask=None, temperature=self.algo_config.ppcc.temperature, reduction_mean=False) * valid_intra.float()
 
 
             # diffusion loss
@@ -340,37 +265,30 @@ class PPCCPolicy(PolicyAlgo):
             noisy_actions = self.noise_scheduler.add_noise(actions, noise, timesteps)
             noise_pred = self.nets["policy"]["noise_pred_net"](noisy_actions, timesteps, global_cond=obs_cond0)
             diffusion_loss_per_sample = F.mse_loss(noise_pred, noise, reduction='none').flatten(start_dim=1).mean(dim=1)
-            diffusion_loss = (diffusion_loss_per_sample * torch.where(pause_labels == 0, 1.0, self.algo_config.ppcc.pause_label.decrease_loss)).mean()
 
 
-
-            phase_contrastive_weight = self.algo_config.loss_weight.phase
-            crossmodal_contrastive_weight = self.algo_config.loss_weight.crossmodal
-            warmup_epochs = self.algo_config.loss_weight.warmup.epochs if self.algo_config.loss_weight.warmup.enabled else 0
-            decay_epochs = self.algo_config.loss_weight.aux_decay.epochs if self.algo_config.loss_weight.aux_decay.enabled else 0
-            if self.algo_config.loss_weight.aux_decay.func != "linear": raise()
-
-            if epoch < warmup_epochs:
-                phase_contrastive_weight = phase_contrastive_weight * float(epoch / warmup_epochs)
-                crossmodal_contrastive_weight = crossmodal_contrastive_weight * float(epoch / warmup_epochs)
+            # pause-aware loss decrease
+            pause_start_epoch = self.algo_config.loss_weight.pause_aware_loss.start_epoch
+            if self.algo_config.loss_weight.pause_aware_loss.enabled and epoch >= pause_start_epoch:
+                phase_contrastive_loss = (phase_contrastive_loss_per_sample * torch.where(pause_labels == 0, 1.0, self.algo_config.ppcc.pause_label.decrease_loss)).mean()
+                diffusion_loss = (diffusion_loss_per_sample * torch.where(pause_labels == 0, 1.0, self.algo_config.ppcc.pause_label.decrease_loss)).mean()
             else:
-                if decay_epochs == 0: pass
-                else:
-                    phase_contrastive_weight = phase_contrastive_weight * float(max(0, decay_epochs - max(0, epoch - warmup_epochs)) / decay_epochs)
-                    crossmodal_contrastive_weight = crossmodal_contrastive_weight * float(max(0, decay_epochs - max(0, epoch - warmup_epochs)) / decay_epochs)
+                phase_contrastive_loss = phase_contrastive_loss_per_sample.mean()
+                diffusion_loss = diffusion_loss_per_sample.mean()
+
+
+            # aux loss decay
+            phase_contrastive_weight = self.algo_config.loss_weight.phase
+            if self.algo_config.loss_weight.aux_decay.enabled: 
+                if self.algo_config.loss_weight.aux_decay.func != "linear": raise()
+                decay_epochs = self.algo_config.loss_weight.aux_decay.epochs
+                phase_contrastive_weight = phase_contrastive_weight * float(max(0, decay_epochs - epoch) / decay_epochs)
             
 
-            crossmodal_contrastive_loss = loss_oa
-            phase_contrastive_loss = (loss_oo + loss_aa) / 2.0
-            loss = self.algo_config.loss_weight.diffusion * diffusion_loss +  crossmodal_contrastive_weight * crossmodal_contrastive_loss + phase_contrastive_weight * phase_contrastive_loss
-
+            loss = self.algo_config.loss_weight.diffusion * diffusion_loss +   phase_contrastive_weight * phase_contrastive_loss
             losses = {
                 "diffusion_loss": diffusion_loss,
                 "phase_loss": phase_contrastive_loss,
-                "crossmodal_loss": crossmodal_contrastive_loss,
-                "loss_oa": loss_oa,
-                "loss_oo": loss_oo,
-                "loss_aa": loss_aa,
                 "total_loss": loss,
             }
             info["losses"] = TensorUtils.detach(losses)
@@ -402,10 +320,6 @@ class PPCCPolicy(PolicyAlgo):
         log["Loss"] = info["losses"]["total_loss"].item()
 
         if "phase_loss" in info["losses"]: log["Phase"] = info["losses"]["phase_loss"].item()
-        if "crossmodal_loss" in info["losses"]: log["Crossmodal"] = info["losses"]["crossmodal_loss"].item()
-        if "loss_oa" in info["losses"]: log["OA"] = info["losses"]["loss_oa"].item()
-        if "loss_oo" in info["losses"]: log["OO"] = info["losses"]["loss_oo"].item()
-        if "loss_aa" in info["losses"]: log["AA"] = info["losses"]["loss_aa"].item()
 
         if "policy_grad_norms" in info:
             log["Policy_Grad_Norms"] = info["policy_grad_norms"]
@@ -506,7 +420,7 @@ class PPCCPolicy(PolicyAlgo):
     
     #####################################################################
 
-    def _ppcc_build_soft_targets(self, phase_ids, phase_progress, sigma_progress=0.25, exclude_self=False, eps=1e-8):
+    def _ppcc_build_soft_targets(self, phase_ids, phase_progress, sigma_progress=0.25, eps=1e-8):
         """
         phase_ids: [B]
         phase_progress: [B], value in [0, 1]
@@ -521,10 +435,7 @@ class PPCCPolicy(PolicyAlgo):
         same_phase = phase_ids[:, None].eq(phase_ids[None, :]).float()
         progress_dist = torch.abs(phase_progress[:, None] - phase_progress[None, :])
         weights = same_phase * torch.exp(-progress_dist / sigma_progress)
-
-        if exclude_self:
-            eye = torch.eye(weights.shape[0], device=weights.device, dtype=weights.dtype)
-            weights = weights * (1.0 - eye)
+        weights = weights * (1.0 - torch.eye(weights.shape[0], device=weights.device, dtype=weights.dtype))
 
         row_sum = weights.sum(dim=1, keepdim=True)
         valid_mask = row_sum.squeeze(1) > eps
@@ -532,30 +443,35 @@ class PPCCPolicy(PolicyAlgo):
         return target_probs, valid_mask
 
 
-    def _ppcc_soft_contrastive_loss(self, query, key, target_probs, valid_mask=None, temperature=0.1, mask_self=False):
+    def _ppcc_soft_contrastive_loss(self, query, key, target_probs, valid_mask=None, temperature=0.1, reduction_mean=True):
         """
         query: [B, D]
         key: [B, D]
         target_probs: [B, B]
         valid_mask: [B]
+        reduction_mean: bool, True이면 평균값(스칼라) 반환, False이면 샘플별 Loss [N] 반환
         """
         query = F.normalize(query, dim=-1)
         key = F.normalize(key, dim=-1)
+        
+        # [B, B] 크기의 코사인 유사도 계산
         logits = torch.matmul(query, key.t()) / temperature
-
-        if mask_self:
-            eye = torch.eye(logits.shape[0], device=logits.device, dtype=torch.bool)
-            logits = logits.masked_fill(eye, -1e9)
-
+        logits = logits.masked_fill(torch.eye(logits.shape[0], device=logits.device, dtype=torch.bool), -1e9)
         log_probs = F.log_softmax(logits, dim=1)
         loss_per_sample = -(target_probs * log_probs).sum(dim=1)
 
+        # valid_mask가 적용되면 배치 크기(B)가 줄어들 수 있습니다.
         if valid_mask is not None:
             loss_per_sample = loss_per_sample[valid_mask]
             if loss_per_sample.numel() == 0:
-                return logits.sum() * 0.0
+                return logits.sum() * 0.0 if reduction_mean else torch.tensor([], dtype=loss_per_sample.dtype, device=logits.device)
 
-        return loss_per_sample.mean()
+        # 인자 값에 따라 분기 처리
+        if reduction_mean:
+            return loss_per_sample.mean() # 스칼라 반환
+        else:
+            return loss_per_sample # 샘플별 손실 [N] 반환 (N <= B)
+
 
 
     def _clone_obs_dict(self, obs_dict):

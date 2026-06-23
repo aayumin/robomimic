@@ -59,7 +59,6 @@ class PPCCConfig(BaseConfig):
 
         # pause label threshold
         self.algo.ppcc.pause_label.epsilon_o = 1e-2
-        self.algo.ppcc.pause_label.epsilon_a = 1e-3
         self.algo.ppcc.pause_label.decrease_loss = 0.1
 
         # action encoder
@@ -80,23 +79,15 @@ class PPCCConfig(BaseConfig):
         self.algo.ppcc.sigma_progress = 0.25
         self.algo.ppcc.temperature = 0.1
         self.algo.ppcc.soft_target_temperature = 0.1
-        self.algo.ppcc.exclude_self_for_intra_modal = True
-
-        # contrastive loss switches
-        self.algo.ppcc.use_obs_action_contrast = True
-        self.algo.ppcc.use_action_obs_contrast = True
-        self.algo.ppcc.use_obs_obs_contrast = True
-        self.algo.ppcc.use_action_action_contrast = True
 
         # loss weights
         self.algo.loss_weight.diffusion = 1.0
-        self.algo.loss_weight.crossmodal = 0.1
         self.algo.loss_weight.phase = 0.1
 
         # optional contrastive warmup / decay
-        self.algo.loss_weight.warmup.enabled = True
-        self.algo.loss_weight.warmup.epochs = 500
-        self.algo.loss_weight.aux_decay.enabled = True
+        self.algo.loss_weight.pause_aware_loss.enabled = True
+        self.algo.loss_weight.pause_aware_loss.start_epoch = 500
+        self.algo.loss_weight.aux_decay.enabled = False
         self.algo.loss_weight.aux_decay.func = "linear"
         self.algo.loss_weight.aux_decay.epochs = 1000
 
