@@ -264,36 +264,39 @@ class PPCCPolicy(PolicyAlgo):
             obs_cond1 = obs_features1.flatten(start_dim=1)
 
 
-            if epoch < self.algo_config.loss_weight.warmup.epochs :
-                # only basic diffusion loss
-                noise = torch.randn_like(actions)
-                timesteps = torch.randint(0, self.noise_scheduler.config.num_train_timesteps, (B,), device=self.device).long()
-                noisy_actions = self.noise_scheduler.add_noise(actions, noise, timesteps)
-                noise_pred = self.nets["policy"]["noise_pred_net"](noisy_actions, timesteps, global_cond=obs_cond0)
-                diffusion_loss = F.mse_loss(noise_pred, noise)
-                loss = diffusion_loss
+            # if epoch < self.algo_config.loss_weight.warmup.epochs :
+            #     # only basic diffusion loss
+            #     noise = torch.randn_like(actions)
+            #     timesteps = torch.randint(0, self.noise_scheduler.config.num_train_timesteps, (B,), device=self.device).long()
+            #     noisy_actions = self.noise_scheduler.add_noise(actions, noise, timesteps)
+            #     noise_pred = self.nets["policy"]["noise_pred_net"](noisy_actions, timesteps, global_cond=obs_cond0)
+            #     diffusion_loss = F.mse_loss(noise_pred, noise)
+            #     loss = diffusion_loss
 
 
-                losses = {
-                    "diffusion_loss": diffusion_loss,
-                    "total_loss": loss,
-                }
-                info["losses"] = TensorUtils.detach(losses)
+            #     losses = {
+            #         "diffusion_loss": diffusion_loss,
+            #         "total_loss": loss,
+            #     }
+            #     info["losses"] = TensorUtils.detach(losses)
 
-                if not validate:
-                    policy_grad_norms = TorchUtils.backprop_for_loss(net=self.nets, optim=self.optimizers["policy"], loss=loss,)
-                    if self.ema is not None: self.ema.step(self.nets)
-                    step_info = {"policy_grad_norms": policy_grad_norms}
-                    info.update(step_info)
-                return info
+            #     if not validate:
+            #         policy_grad_norms = TorchUtils.backprop_for_loss(net=self.nets, optim=self.optimizers["policy"], loss=loss,)
+            #         if self.ema is not None: self.ema.step(self.nets)
+            #         step_info = {"policy_grad_norms": policy_grad_norms}
+            #         info.update(step_info)
+            #     return info
         
 
             # pause label
             pause_labels = torch.zeros(B, device=self.device)
             obs_cond_sim = F.cosine_similarity(obs_cond0, obs_cond1, dim=-1)
+            # print(f"\nobs_cond_sim: {obs_cond_sim},  action_norm: {torch.linalg.vector_norm(actions[:, -1, :] - actions[:, 0, :], dim=-1)}")
             pause_conditions = (obs_cond_sim > 1 - self.algo_config.ppcc.pause_label.epsilon_o) & (
-                torch.norm(actions, p=2, dim=-1).sum(dim=1) < self.algo_config.ppcc.pause_label.epsilon_a)
+                torch.linalg.vector_norm(actions[:, -1, :] - actions[:, 0, :], dim=-1) < self.algo_config.ppcc.pause_label.epsilon_a)
             pause_labels[pause_conditions] = 1.0
+
+
 
 
             # encode action for contrastive auxiliary learning
@@ -343,12 +346,19 @@ class PPCCPolicy(PolicyAlgo):
 
             phase_contrastive_weight = self.algo_config.loss_weight.phase
             crossmodal_contrastive_weight = self.algo_config.loss_weight.crossmodal
-            if self.algo_config.loss_weight.aux_decay.enabled:
-                if self.algo_config.loss_weight.aux_decay.func == "linear":
-                    phase_contrastive_weight = phase_contrastive_weight * float(max(0, self.algo_config.loss_weight.aux_decay.epochs - max(0, epoch - self.algo_config.loss_weight.warmup.epochs)) / self.algo_config.loss_weight.aux_decay.epochs)
-                    crossmodal_contrastive_weight = crossmodal_contrastive_weight * float(max(0, self.algo_config.loss_weight.aux_decay.epochs - max(0, epoch - self.algo_config.loss_weight.warmup.epochs)) / self.algo_config.loss_weight.aux_decay.epochs)
+            warmup_epochs = self.algo_config.loss_weight.warmup.epochs if self.algo_config.loss_weight.warmup.enabled else 0
+            decay_epochs = self.algo_config.loss_weight.aux_decay.epochs if self.algo_config.loss_weight.aux_decay.enabled else 0
+            if self.algo_config.loss_weight.aux_decay.func != "linear": raise()
+
+            if epoch < warmup_epochs:
+                phase_contrastive_weight = phase_contrastive_weight * float(epoch / warmup_epochs)
+                crossmodal_contrastive_weight = crossmodal_contrastive_weight * float(epoch / warmup_epochs)
+            else:
+                if decay_epochs == 0: pass
                 else:
-                    raise()
+                    phase_contrastive_weight = phase_contrastive_weight * float(max(0, decay_epochs - max(0, epoch - warmup_epochs)) / decay_epochs)
+                    crossmodal_contrastive_weight = crossmodal_contrastive_weight * float(max(0, decay_epochs - max(0, epoch - warmup_epochs)) / decay_epochs)
+            
 
             crossmodal_contrastive_loss = loss_oa
             phase_contrastive_loss = (loss_oo + loss_aa) / 2.0
