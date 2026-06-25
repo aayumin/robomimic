@@ -303,6 +303,10 @@ def save_embedding_umap(model, data_loader, save_dir, epoch, embedding_type="obs
                 phase = batch["phase_ids"]
                 if phase.ndim > 1: phase = phase[:, 0]
                 phase = phase.detach().cpu().numpy().reshape(-1)
+            elif "phase_labels" in batch:
+                phase = batch["phase_labels"]
+                if phase.ndim > 1: phase = phase[:, 0]
+                phase = phase.detach().cpu().numpy().reshape(-1)
             else: phase = None
 
 

@@ -92,6 +92,13 @@
                 }
             }
         },
+        "sampling": {
+            "enabled": true,
+            "balance_batches": true,
+            "drop_last": true,
+            "num_batches": null,
+            "default_num_phases": 3
+        },
         "importance_score": {
             "enabled": true,
             "ignore_threshold": 0.05,
@@ -107,7 +114,7 @@
         },
         "phase_head": {
             "enabled": true,
-            "num_classes": 4,
+            "num_classes": 3,
             "loss_weight": 0.05
         },
         "horizon": {
