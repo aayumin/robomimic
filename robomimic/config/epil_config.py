@@ -43,24 +43,14 @@ class EPILConfig(BaseConfig):
         self.algo.optim_params.policy.learning_rate.do_not_lock_keys()
         self.algo.optim_params.policy.regularization.L2 = 1e-6          # L2 regularization strength
 
-        # sampling parameters
-        self.algo.sampling.enabled = True
-        self.algo.sampling.balance_batches = True
-        self.algo.sampling.drop_last = True
-        self.algo.sampling.num_batches = None
-        self.algo.sampling.default_num_phases = 3
 
         # aux head
         self.algo.aux_head.hidden_dim = 256
-        self.algo.event_head.enabled = True
-        self.algo.event_head.threshold = 0.3
-        self.algo.event_head.loss_weight = 0.1
         self.algo.phase_head.enabled = True
-        self.algo.phase_head.num_classes = 4
         self.algo.phase_head.loss_weight = 0.1
         self.algo.phase_condition.enabled = True
         self.algo.phase_condition.emb_dim = 16
-        self.algo.importance_score.enabled = True
+        self.algo.importance_score.enabled = False
         self.algo.importance_score.ignore_threshold = 0.05
         self.algo.importance_score.maximize_threshold = 0.30
 

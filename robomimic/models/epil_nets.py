@@ -251,13 +251,11 @@ class AuxTemporalHead(nn.Module):
     def __init__(
         self,
         global_cond_dim: int,
-        num_phase_classes: int,
         hidden_dim: int = 256,
         phase_emb_dim: int = 16,
         dropout: float = 0.0,
     ):
         super().__init__()
-        self.num_phase_classes = num_phase_classes
         self.phase_emb_dim = phase_emb_dim
 
         self.trunk = nn.Sequential(
@@ -268,32 +266,33 @@ class AuxTemporalHead(nn.Module):
             nn.ReLU(),
         )
 
-        self.current_phase_head = nn.Linear(hidden_dim, num_phase_classes)
-        self.next_phase_head = nn.Linear(hidden_dim, num_phase_classes)
-
-        self.current_phase_embed = nn.Sequential(
-            nn.Linear(hidden_dim + num_phase_classes, hidden_dim),
+        self.phase_embed = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(hidden_dim, phase_emb_dim),
         )
 
+        self.current_phase_head = nn.Sequential(
+            nn.Linear(phase_emb_dim, 1),
+            nn.Sigmoid(),
+        )
+        self.next_phase_head = nn.Sequential(
+            nn.Linear(phase_emb_dim, 1),
+            nn.Sigmoid(),
+        )
+
+        
+
 
     def forward(
         self,
         global_cond: torch.Tensor,
-        current_phase_onehot = None,
     ):
         feat = self.trunk(global_cond)
+        phase_emb = self.phase_embed(feat)
 
-        current_phase_logits = self.current_phase_head(feat)
-        next_phase_logits = self.next_phase_head(feat)
-
-        if current_phase_onehot is None:
-            current_phase_info = torch.softmax(current_phase_logits, dim=-1)
-        else:
-            current_phase_info = current_phase_onehot.float()
-
-        phase_emb = self.current_phase_embed(torch.cat([feat, current_phase_info], dim=-1))
+        current_phase_logits = self.current_phase_head(phase_emb)
+        next_phase_logits = self.next_phase_head(phase_emb)
 
         return current_phase_logits, next_phase_logits, phase_emb

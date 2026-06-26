@@ -73,11 +73,9 @@ class EPILPolicy(PolicyAlgo):
         Tp = self.algo_config.horizon.prediction_horizon
 
         phase_emb_dim = self.algo_config.phase_condition.emb_dim
-        num_phase_classes = self.algo_config.phase_head.num_classes
 
         aux_head = EPILNets.AuxTemporalHead(
             global_cond_dim=obs_cond_dim,
-            num_phase_classes=num_phase_classes,
             hidden_dim=self.algo_config.aux_head.hidden_dim,
             phase_emb_dim=phase_emb_dim,
         )
@@ -204,16 +202,17 @@ class EPILPolicy(PolicyAlgo):
             
             obs_features = TensorUtils.time_distributed(inputs, self.nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
             assert obs_features.ndim == 3  # [B, T, D]
-
             obs_cond = obs_features.flatten(start_dim=1)
-            num_phase_classes = self.algo_config.phase_head.num_classes
-            current_phase_labels = batch["phase_labels"][:, 0].long()  # [B]
-            next_phase_labels = batch["phase_labels"][:, -1].long()  # [B]
-            current_phase_onehot = torch.nn.functional.one_hot(current_phase_labels, num_classes=num_phase_classes).float()
 
             
 
-            current_phase_logits, next_phase_logits, phase_emb = self.nets["policy"]["aux_head"](obs_cond, current_phase_onehot)
+
+            current_phase_logits, next_phase_logits, phase_emb = self.nets["policy"]["aux_head"](obs_cond)
+            current_phase_labels = batch["phase_labels"][:, 0]  # [B]
+            next_phase_labels = batch["phase_labels"][:, -1]  # [B]
+            current_phase_logits = current_phase_logits[:, 0]
+            next_phase_logits = next_phase_logits[:, 0]
+
 
             policy_cond = torch.cat([obs_cond, phase_emb], dim=-1)
 
@@ -241,12 +240,12 @@ class EPILPolicy(PolicyAlgo):
             # 3) phase loss 추가
             # -------------------------------------------------
 
-            current_phase_loss = F.cross_entropy(
+            current_phase_loss = F.mse_loss(
                 current_phase_logits,
                 current_phase_labels,
             )
 
-            next_phase_loss = F.cross_entropy(
+            next_phase_loss = F.mse_loss(
                 next_phase_logits,
                 next_phase_labels,
             )

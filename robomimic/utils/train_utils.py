@@ -194,7 +194,6 @@ def dataset_factory(config, obs_keys, filter_by_attribute=None, dataset_path=Non
     ds_kwargs["hdf5_path"] = [ds_cfg["path"] for ds_cfg in config.train.data]
     ds_kwargs["filter_by_attribute"] = [ds_cfg.get("filter_key", filter_by_attribute) for ds_cfg in config.train.data]
     ds_kwargs["demo_limit"] = [ds_cfg.get("demo_limit", None) for ds_cfg in config.train.data]
-    ds_kwargs["sampling_cfg"] = config.algo.get("sampling", None)
     ds_kwargs["sim_gating_cfg"] = config.algo.get("similarity_based_temporal_gating", None)
     ds_kwargs["augmentation_config"] = config.train.augmentation if hasattr(config.train, "augmentation") else None
     ds_weights = [ds_cfg.get("weight", 1.0) for ds_cfg in config.train.data]
@@ -368,32 +367,49 @@ def save_embedding_umap(model, data_loader, save_dir, epoch, embedding_type="obs
     )
     
     if phase_ids is not None:
-        unique_phases = np.sort(np.unique(phase_ids).astype(np.int64))
-        cmap = plt.get_cmap("tab10", len(unique_phases))
-        bounds = np.arange(len(unique_phases) + 1) - 0.5
-        norm = mcolors.BoundaryNorm(bounds, cmap.N)
+        if np.issubdtype(phase_ids.dtype, np.integer) :
+            unique_phases = np.sort(np.unique(phase_ids).astype(np.int64))
+            cmap = plt.get_cmap("tab10", len(unique_phases))
+            bounds = np.arange(len(unique_phases) + 1) - 0.5
+            norm = mcolors.BoundaryNorm(bounds, cmap.N)
 
-        phase_to_color_id = {phase_id: i for i, phase_id in enumerate(unique_phases)}
-        color_ids = np.array([phase_to_color_id[int(p)] for p in phase_ids], dtype=np.int64)
+            phase_to_color_id = {phase_id: i for i, phase_id in enumerate(unique_phases)}
+            color_ids = np.array([phase_to_color_id[int(p)] for p in phase_ids], dtype=np.int64)
 
-        plt.figure(figsize=(7, 6))
-        sc = plt.scatter(
-            emb_2d[:, 0],
-            emb_2d[:, 1],
-            c=color_ids,
-            s=4,
-            cmap=cmap,
-            norm=norm,
-        )
+            plt.figure(figsize=(7, 6))
+            sc = plt.scatter(
+                emb_2d[:, 0],
+                emb_2d[:, 1],
+                c=color_ids,
+                s=4,
+                cmap=cmap,
+                norm=norm,
+            )
 
-        cbar = plt.colorbar(sc, ticks=np.arange(len(unique_phases)))
-        cbar.ax.set_yticklabels([str(p) for p in unique_phases])
-        cbar.set_label("phase_ids")
+            cbar = plt.colorbar(sc, ticks=np.arange(len(unique_phases)))
+            cbar.ax.set_yticklabels([str(p) for p in unique_phases])
+            cbar.set_label("phase_ids")
 
-        plt.title("{} UMAP by Phase - Epoch {}".format(embedding_type, epoch))
-        plt.tight_layout()
-        plt.savefig(os.path.join(save_dir, "{}_umap_phase_epoch_{}.png".format(embedding_type, epoch)), dpi=200)
-        plt.close()
+            plt.title("{} UMAP by Phase - Epoch {}".format(embedding_type, epoch))
+            plt.tight_layout()
+            plt.savefig(os.path.join(save_dir, "{}_umap_phase_epoch_{}.png".format(embedding_type, epoch)), dpi=200)
+            plt.close()
+        else: # float
+            plt.figure(figsize=(7, 6))
+            sc = plt.scatter(
+                emb_2d[:, 0],
+                emb_2d[:, 1],
+                c=phase_ids,
+                s=4,
+                label="phase_labels",
+                alpha=0.7
+            )
+            cbar = plt.colorbar(sc, label="phase_labels")
+            plt.title("{} UMAP by Phase - Epoch {}".format(embedding_type, epoch))
+            plt.tight_layout()
+            plt.savefig(os.path.join(save_dir, "{}_umap_phase_epoch_{}.png".format(embedding_type, epoch)), dpi=200)
+            plt.close()
+
 
     if modality_ids is not None:
         plt.figure(figsize=(7, 6))
