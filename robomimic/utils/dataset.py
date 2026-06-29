@@ -29,12 +29,17 @@ class MemoryAugmentedHDF5:
     def __getitem__(self, key):
         if key in self.temp_data:
             return self.temp_data[key]
-        return self.file[key]
+        
+        item = self.file[key]
+        if isinstance(item, h5py.Dataset): return item[:]
+        return item
+        # return self.file[key]
+    
     
     def check_key_exists(self, key):
-        if key in self.temp_data.keys(): return True
+        if key in self.temp_data: return True
         try: 
-            self.file[key]
+            _ = self.file[key]
             return True
         except: pass
         return False
@@ -178,15 +183,6 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.action_normalization_stats = None
 
 
-        # global normalized phase progress
-
-        for ep in self.demos:
-            phase_label_arr = self.make_default_phase_info(ep)
-            self._hdf5_file.add_temporary_data(f"data/{ep}/phase_labels", phase_label_arr)
-
-
-
-
         # maybe store dataset in memory for fast access
         if self.hdf5_cache_mode in ["all", "low_dim"]:
             obs_keys_in_memory = self.obs_keys
@@ -222,6 +218,13 @@ class SequenceDataset(torch.utils.data.Dataset):
 
 
 
+        # per-episode pause-aware normalized phase progress
+        for ep in self.demos:
+            phase_label_arr = self.make_pause_aware_phase_info(ep)
+            print("phase_label_arr: \n", phase_label_arr)
+            self._hdf5_file.add_temporary_data(f"data/{ep}/phase_labels", phase_label_arr)
+
+
         # sim gating config
         self.sim_gating_cfg = sim_gating_cfg
         if self.sim_gating_cfg is not None:
@@ -234,59 +237,73 @@ class SequenceDataset(torch.utils.data.Dataset):
 
         self.close_and_delete_hdf5_handle()
 
-
-    def make_default_phase_info(self, demo_id):
-        demo_length = self._demo_id_to_demo_length[demo_id]
-        global_progress = np.linspace(0, 1.0, demo_length)
-        return global_progress
-
-
-    def infer_num_phases_from_hdf5(self):
-        phase_ids = []
-        for ep in self.demos:
-            phase_arr = self._hdf5_file["data/{}/{}".format(ep, self.phase_ids_key)][()]
-            phase_ids.append(phase_arr.reshape(-1))
-        phase_ids = np.concatenate(phase_ids, axis=0).astype(np.int64)
-        return int(len(np.unique(phase_ids)))
-
-    def get_phase_info(self, demo_id, index_in_demo):
-
-        phase_id = self._hdf5_file[f"data/{demo_id}/{self.phase_ids_key}"][index_in_demo]
-        progress = self._hdf5_file[f"data/{demo_id}/{self.phase_progress_key}"][index_in_demo]
-      
-        phase_id = int(phase_id)
-        progress = float(np.clip(progress, 0.0, 1.0))
-
-        return phase_id, progress
+    def smooth_gripper_actions(self, actions, sigma=3.0):
+        epi_len = len(actions)
+        gripper_transition_indices = np.where(np.diff(actions[:, -1]) != 0)[0]
+        gaussian_signal = np.zeros(epi_len)
+        steps = np.arange(epi_len)
+        
+        for idx in gripper_transition_indices:
+            center = idx + 0.5
+            signal = np.exp(-((steps - center) ** 2) / (2 * (sigma ** 2)))
+            gaussian_signal = np.maximum(gaussian_signal, signal)
+        return gaussian_signal
 
 
-    def build_phase_to_indices(self):
+    def make_pause_aware_phase_info(self, demo_id, action_dim_slice=None, pause_threshold=1e-3, eps=1e-8):
         """
-        Build index pools for phase-balanced batch sampling.
+        Make annotation-free pause-aware normalized phase progress.
+
+        Progress increases according to accumulated action movement distance.
+        Pause / near-zero action segments contribute almost no progress.
+
+        Args:
+            demo_id (str): demo key, e.g. "demo_0"
+            action_dim_slice: action dimensions used to measure movement.
+                slice(0, 3) assumes xyz translation action.
+                Use None to use all action dimensions.
+            pause_threshold (float): movement below this value is treated as pause.
+            eps (float): numerical stability.
 
         Returns:
-            phase_to_indices: dict
-                phase_id -> np.ndarray of dataset indices
+            progress: np.ndarray, shape [demo_length], values in [0, 1]
         """
-        phase_to_indices = dict()
+        action_list = []
+        for k in self.action_keys:
+            a = self._hdf5_file["data/{}/{}".format(demo_id, k)][()].astype(np.float32)
+            if len(a.shape) == 1: a = a.reshape(-1, 1)
+            if a.shape[-1] > 1: a[:, -1] = self.smooth_gripper_actions(a) # maybe gripper at the last idx (?)
+            action_list.append(a)
 
-        for index in range(len(self)):
-            demo_id = self._index_to_demo_id[index]
-            demo_start_index = self._demo_id_to_start_indices[demo_id]
-            demo_index_offset = 0 if self.pad_frame_stack else (self.n_frame_stack - 1)
-            index_in_demo = index - demo_start_index + demo_index_offset
+        actions = np.concatenate(action_list, axis=-1)
+        move_actions = actions if action_dim_slice is None else actions[..., action_dim_slice]
 
-            phase_id, _ = self.get_phase_info(demo_id, index_in_demo)
+        step_dist = np.linalg.norm(move_actions, ord=2, axis=-1).astype(np.float32)
+        np.set_printoptions(precision=4, suppress=True)
 
-            if phase_id not in phase_to_indices:
-                phase_to_indices[phase_id] = []
-            phase_to_indices[phase_id].append(index)
+        for aa in move_actions: print(aa)
+        print("step_dist:\n", step_dist)
+        print(f"mean: {np.mean(move_actions, axis=0)},  std: {np.std(move_actions, axis=0)}")
+        print(f"mean: {np.mean(np.abs(move_actions), axis=0)},  std: {np.std(np.abs(move_actions), axis=0)}")
+        print(f"mean: {np.mean(step_dist)},  std: {np.std(step_dist)}")
+        print("\n")
+        raise()
+        step_dist[step_dist < pause_threshold] = 0.0
 
-        phase_to_indices = {k: np.array(v, dtype=np.int64) for k, v in phase_to_indices.items() if len(v) > 0}
+        accum_dist = np.cumsum(step_dist)
+        total_dist = accum_dist[-1]
 
-        assert len(phase_to_indices) > 0, "No valid phase indices found for phase-balanced sampling."
+        if total_dist < eps:
+            progress = np.linspace(0.0, 1.0, actions.shape[0], dtype=np.float32)
+        else:
+            progress = accum_dist / max(total_dist, eps)
+            progress = np.clip(progress, 0.0, 1.0).astype(np.float32)
 
-        return phase_to_indices
+        progress[0] = 0.0
+        progress[-1] = 1.0
+
+        return progress
+
 
 
     def load_demo_info(self, filter_by_attribute=None, demos=None, demo_limit=None):
