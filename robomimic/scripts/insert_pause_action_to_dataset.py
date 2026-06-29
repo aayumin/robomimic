@@ -78,30 +78,28 @@ def save_video(video_data, filename, fps=30):
 def insert_pause_once(data, pause_start, pause_duration, is_relative=False):
     if isinstance(data, dict):
         for k, v in data.items():
-            if k[-3:] == "vel":
+            if k[-3:] == "vel" or k == "actions":
                 data[k] = insert_pause_once(v, pause_start, pause_duration, is_relative=True)
             else:
                 data[k] = insert_pause_once(v, pause_start, pause_duration)
-    else: # np.array  (epi_len, )  or (epi_len,  x_dim)
+    else: 
         '''
         actions (len, 7)
           data[:, :3] : relative position, 
           data[:, 3:6] : relative orientation, 
           data[:, -1] : absolute gripper
         '''
-        pause_frame = data[pause_start : pause_start + 1]  ## (1, ) or (1, x_dim)
-        repeated_data = np.repeat(pause_frame, pause_duration, axis=0)  ##  (duration, )  or (duration, x_dim))
+        pause_frame = data[pause_start : pause_start + 1]
+        repeated_data = np.repeat(pause_frame, pause_duration, axis=0)
 
-        # relative (ex: joint_vel, gripper_qvel)
-        if is_relative: repeated_data[:, :] = 0
+        if is_relative:
+            if len(data.shape) == 2:
+                if data.shape[-1] == 7: repeated_data[:, :-1] = 0 
+                else: repeated_data[:, :] = 0
+            else:
+                repeated_data[:] = 0
 
-        # actions
-        if len(data.shape) == 2 and data.shape[-1] == 7:
-            repeated_data[:, :-1] = 0 ## relative position, relative orientation, absolute gripper)
-
-
-        data = np.concatenate([ data[:pause_start],  repeated_data,  data[pause_start:] ], axis=0)
-            
+        data = np.concatenate([data[:pause_start], repeated_data, data[pause_start:]], axis=0)
     return data
 
 
