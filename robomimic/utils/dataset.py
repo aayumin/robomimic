@@ -221,7 +221,6 @@ class SequenceDataset(torch.utils.data.Dataset):
         # per-episode pause-aware normalized phase progress
         for ep in self.demos:
             phase_label_arr = self.make_pause_aware_phase_info(ep)
-            print("phase_label_arr: \n", phase_label_arr)
             self._hdf5_file.add_temporary_data(f"data/{ep}/phase_labels", phase_label_arr)
 
 
@@ -250,7 +249,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         return gaussian_signal
 
 
-    def make_pause_aware_phase_info(self, demo_id, action_dim_slice=None, pause_threshold=1e-3, eps=1e-8):
+    def make_pause_aware_phase_info(self, demo_id, action_dim_slice=None, pause_threshold=1e-2, eps=1e-8):
         """
         Make annotation-free pause-aware normalized phase progress.
 
@@ -279,17 +278,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         move_actions = actions if action_dim_slice is None else actions[..., action_dim_slice]
 
         step_dist = np.linalg.norm(move_actions, ord=2, axis=-1).astype(np.float32)
-        np.set_printoptions(precision=4, suppress=True)
-
-        for aa in move_actions: print(aa)
-        print("step_dist:\n", step_dist)
-        print(f"mean: {np.mean(move_actions, axis=0)},  std: {np.std(move_actions, axis=0)}")
-        print(f"mean: {np.mean(np.abs(move_actions), axis=0)},  std: {np.std(np.abs(move_actions), axis=0)}")
-        print(f"mean: {np.mean(step_dist)},  std: {np.std(step_dist)}")
-        print("\n")
-        raise()
         step_dist[step_dist < pause_threshold] = 0.0
-
         accum_dist = np.cumsum(step_dist)
         total_dist = accum_dist[-1]
 
@@ -301,7 +290,6 @@ class SequenceDataset(torch.utils.data.Dataset):
 
         progress[0] = 0.0
         progress[-1] = 1.0
-
         return progress
 
 
