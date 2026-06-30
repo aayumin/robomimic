@@ -23,8 +23,10 @@ class MemoryAugmentedHDF5:
         self.file = h5py.File(hdf5_path, 'r', swmr=swmr, libver='latest')
         self.temp_data = {}
 
+
     def add_temporary_data(self, new_key, new_data):
         self.temp_data[new_key] = np.array(new_data)
+
 
     def __getitem__(self, key):
         if key in self.temp_data:
@@ -183,6 +185,14 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.action_normalization_stats = None
 
 
+
+
+        # per-episode pause-aware normalized phase progress
+        for ep in self.demos:
+            phase_label_arr = self.make_pause_aware_phase_info(ep)
+            self._hdf5_file.add_temporary_data(f"data/{ep}/phase_labels", phase_label_arr)
+
+
         # maybe store dataset in memory for fast access
         if self.hdf5_cache_mode in ["all", "low_dim"]:
             obs_keys_in_memory = self.obs_keys
@@ -215,14 +225,6 @@ class SequenceDataset(torch.utils.data.Dataset):
                 self.hdf5_cache = None
         else:
             self.hdf5_cache = None
-
-
-
-        # per-episode pause-aware normalized phase progress
-        for ep in self.demos:
-            phase_label_arr = self.make_pause_aware_phase_info(ep)
-            self._hdf5_file.add_temporary_data(f"data/{ep}/phase_labels", phase_label_arr)
-
 
         # sim gating config
         self.sim_gating_cfg = sim_gating_cfg
