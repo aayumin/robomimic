@@ -9,7 +9,6 @@ import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.cuda.amp import autocast
 # requires diffusers==0.11.1
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
@@ -194,7 +193,7 @@ class EPILPolicy(PolicyAlgo):
             actions = batch["actions"]
             
             
-            with autocast():
+            with torch.amp.autocast('cuda'):
                 inputs = {
                     "obs": batch["obs"],
                     "goal": batch["goal_obs"]
