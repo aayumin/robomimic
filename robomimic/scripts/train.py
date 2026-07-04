@@ -181,6 +181,7 @@ def train(config, device, resume=False):
             dataset=trainset,
             batch_sampler=train_batch_sampler,
             num_workers=config.train.num_data_workers,
+            pin_memory=True,
         )
     else:
         train_loader = DataLoader(
@@ -189,6 +190,7 @@ def train(config, device, resume=False):
             batch_size=config.train.batch_size,
             shuffle=(train_sampler is None),
             num_workers=config.train.num_data_workers,
+            pin_memory=True,
             drop_last=True,
         )
 
@@ -202,6 +204,7 @@ def train(config, device, resume=False):
             batch_size=config.train.batch_size,
             shuffle=(valid_sampler is None),
             num_workers=num_workers,
+            pin_memory=True,
             drop_last=True
         )
     else:

@@ -41,7 +41,7 @@
         "data": null,
         "output_dir": "../act_baseline_trained_models",
         "normalize_weights_by_ds_size": false,
-        "num_data_workers": 0,
+        "num_data_workers": 12,
         "hdf5_cache_mode": "all",
         "hdf5_use_swmr": true,
         "hdf5_load_next_obs": false,

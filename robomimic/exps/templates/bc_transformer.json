@@ -39,7 +39,7 @@
     "train": {
         "data": null,
         "output_dir": "../bc_transformer_trained_models",
-        "num_data_workers": 0,
+        "num_data_workers": 12,
         "hdf5_cache_mode": "low_dim",
         "hdf5_use_swmr": true,
         "hdf5_load_next_obs": false,
