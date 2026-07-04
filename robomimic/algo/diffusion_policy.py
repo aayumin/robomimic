@@ -9,6 +9,7 @@ import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.cuda.amp import autocast
 # requires diffusers==0.11.1
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
@@ -119,6 +120,7 @@ class DiffusionPolicyUNet(PolicyAlgo):
         self.action_check_done = False
         self.obs_queue = None
         self.action_queue = None
+        self.scaler = torch.cuda.amp.GradScaler()
     
     def process_batch_for_training(self, batch):
         """
@@ -201,63 +203,63 @@ class DiffusionPolicyUNet(PolicyAlgo):
             info = super(DiffusionPolicyUNet, self).train_on_batch(batch, epoch, validate=validate)
             actions = batch["actions"]
             
-            # encode obs
-            inputs = {
-                "obs": batch["obs"],
-                "goal": batch["goal_obs"]
-            }
-            for k in self.obs_shapes:
-                # first two dimensions should be [B, T] for inputs
-                assert inputs["obs"][k].ndim - 2 == len(self.obs_shapes[k])
-            
-            obs_features = TensorUtils.time_distributed(inputs, self.nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
-            assert obs_features.ndim == 3  # [B, T, D]
-
-            obs_cond = obs_features.flatten(start_dim=1)
-            
-            # sample noise to add to actions
-            noise = torch.randn(actions.shape, device=self.device)
-            
-            # sample a diffusion iteration for each data point
-            timesteps = torch.randint(
-                0, self.noise_scheduler.config.num_train_timesteps, 
-                (B,), device=self.device
-            ).long()
-            
-            # add noise to the clean actions according to the noise magnitude at each diffusion iteration
-            # (this is the forward diffusion process)
-            noisy_actions = self.noise_scheduler.add_noise(
-                actions, noise, timesteps)
-            
-            # predict the noise residual
-            noise_pred = self.nets["policy"]["noise_pred_net"](
-                noisy_actions, timesteps, global_cond=obs_cond)
-            
-
-            # L2 loss with importance_score weight
-            if self.algo_config.importance_score.enabled:
-                importance_score = batch["importance_score"]
-                ignore_thre = self.algo_config.importance_score.ignore_threshold
-                maximize_thre = self.algo_config.importance_score.maximize_threshold
-
-                w = importance_score
-                w[w < ignore_thre] = 0.0
-                w[w > maximize_thre] = 1.0
-
-                mse = F.mse_loss(noise_pred, noise, reduction="none")
-                loss = (mse.mean(-1) * w).sum() / w.sum()
-
-                losses = {
-                    "L2": mse.mean(),
-                    "Loss": loss,
-                    "IS_weight_mean" : w.mean()
+            with autocast():
+                inputs = {
+                    "obs": batch["obs"],
+                    "goal": batch["goal_obs"]
                 }
-            else:
-                # L2 loss
-                loss = F.mse_loss(noise_pred, noise)
-                losses = {
-                    "Loss": loss,
-                }
+                for k in self.obs_shapes:
+                    # first two dimensions should be [B, T] for inputs
+                    assert inputs["obs"][k].ndim - 2 == len(self.obs_shapes[k])
+                
+                obs_features = TensorUtils.time_distributed(inputs, self.nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
+                assert obs_features.ndim == 3  # [B, T, D]
+
+                obs_cond = obs_features.flatten(start_dim=1)
+                
+                # sample noise to add to actions
+                noise = torch.randn(actions.shape, device=self.device)
+                
+                # sample a diffusion iteration for each data point
+                timesteps = torch.randint(
+                    0, self.noise_scheduler.config.num_train_timesteps, 
+                    (B,), device=self.device
+                ).long()
+                
+                # add noise to the clean actions according to the noise magnitude at each diffusion iteration
+                # (this is the forward diffusion process)
+                noisy_actions = self.noise_scheduler.add_noise(
+                    actions, noise, timesteps)
+                
+                # predict the noise residual
+                noise_pred = self.nets["policy"]["noise_pred_net"](
+                    noisy_actions, timesteps, global_cond=obs_cond)
+                
+
+                # L2 loss with importance_score weight
+                if self.algo_config.importance_score.enabled:
+                    importance_score = batch["importance_score"]
+                    ignore_thre = self.algo_config.importance_score.ignore_threshold
+                    maximize_thre = self.algo_config.importance_score.maximize_threshold
+
+                    w = importance_score
+                    w[w < ignore_thre] = 0.0
+                    w[w > maximize_thre] = 1.0
+
+                    mse = F.mse_loss(noise_pred, noise, reduction="none")
+                    loss = (mse.mean(-1) * w).sum() / w.sum()
+
+                    losses = {
+                        "L2": mse.mean(),
+                        "Loss": loss,
+                        "IS_weight_mean" : w.mean()
+                    }
+                else:
+                    # L2 loss
+                    loss = F.mse_loss(noise_pred, noise)
+                    losses = {
+                        "Loss": loss,
+                    }
             
             
             info["losses"] = TensorUtils.detach(losses)
@@ -268,6 +270,7 @@ class DiffusionPolicyUNet(PolicyAlgo):
                     net=self.nets,
                     optim=self.optimizers["policy"],
                     loss=loss,
+                    scaler=self.scaler,
                 )
                 
                 # update Exponential Moving Average of the model weights

@@ -9,6 +9,7 @@ import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.cuda.amp import autocast
 # requires diffusers==0.11.1
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
@@ -128,6 +129,7 @@ class PAPCPolicy(PolicyAlgo):
         self.action_check_done = False
         self.obs_queue = None
         self.action_queue = None
+        self.scaler = torch.cuda.amp.GradScaler()
     
     def process_batch_for_training(self, batch):
         """
@@ -191,72 +193,74 @@ class PAPCPolicy(PolicyAlgo):
             info = super(PAPCPolicy, self).train_on_batch(batch, epoch, validate=validate)
             actions = batch["actions"]
             
-            # encode obs
-            inputs = {
-                "obs": batch["obs"],
-                "goal": batch["goal_obs"]
-            }
-            for k in self.obs_shapes:
-                # first two dimensions should be [B, T] for inputs
-                assert inputs["obs"][k].ndim - 2 == len(self.obs_shapes[k])
             
-            obs_features = TensorUtils.time_distributed(inputs, self.nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
-            assert obs_features.ndim == 3  # [B, T, D]
-            obs_cond = obs_features.flatten(start_dim=1)
+            with autocast():
+                inputs = {
+                    "obs": batch["obs"],
+                    "goal": batch["goal_obs"]
+                }
+                for k in self.obs_shapes:
+                    # first two dimensions should be [B, T] for inputs
+                    assert inputs["obs"][k].ndim - 2 == len(self.obs_shapes[k])
+                
+                obs_features = TensorUtils.time_distributed(inputs, self.nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
+                assert obs_features.ndim == 3  # [B, T, D]
+                obs_cond = obs_features.flatten(start_dim=1)
 
+                
+
+
+                current_phase_logits, next_phase_logits, phase_emb = self.nets["policy"]["aux_head"](obs_cond)
+                current_phase_labels = batch["phase_labels"][:, 0]  # [B]
+                next_phase_labels = batch["phase_labels"][:, -1]  # [B]
+                current_phase_logits = current_phase_logits[:, 0]
+                next_phase_logits = next_phase_logits[:, 0]
+
+
+                policy_cond = torch.cat([obs_cond, phase_emb], dim=-1)
+
+                # sample noise to add to actions
+                noise = torch.randn(actions.shape, device=self.device)
+                timesteps = torch.randint(0, self.noise_scheduler.config.num_train_timesteps, (B,), device=self.device ).long()
+                noisy_actions = self.noise_scheduler.add_noise(actions, noise, timesteps)
+
+                # predict the noise residual
+                noise_pred = self.nets["policy"]["noise_pred_net"](
+                    noisy_actions, timesteps, global_cond=policy_cond
+                )
+
+                losses = {}
+
+                # -------------------------------------------------
+                # 1) main diffusion loss 먼저 계산
+                # -------------------------------------------------
+                mse = F.mse_loss(noise_pred, noise, reduction="none")
+                diffusion_loss = mse.mean()
+
+                loss = diffusion_loss
+
+                # -------------------------------------------------
+                # 3) phase loss 추가
+                # -------------------------------------------------
+
+                current_phase_loss = F.mse_loss(
+                    current_phase_logits,
+                    current_phase_labels,
+                )
+
+                next_phase_loss = F.mse_loss(
+                    next_phase_logits,
+                    next_phase_labels,
+                )
+
+                phase_loss = (current_phase_loss + next_phase_loss) / 2
+                loss = loss + self.algo_config.phase_head.loss_weight * phase_loss
+
+
+                losses["Diffusion_Loss"] = diffusion_loss
+                losses["Phase_Loss"] = phase_loss
+                losses["Loss"] = loss
             
-
-
-            current_phase_logits, next_phase_logits, phase_emb = self.nets["policy"]["aux_head"](obs_cond)
-            current_phase_labels = batch["phase_labels"][:, 0]  # [B]
-            next_phase_labels = batch["phase_labels"][:, -1]  # [B]
-            current_phase_logits = current_phase_logits[:, 0]
-            next_phase_logits = next_phase_logits[:, 0]
-
-
-            policy_cond = torch.cat([obs_cond, phase_emb], dim=-1)
-
-            # sample noise to add to actions
-            noise = torch.randn(actions.shape, device=self.device)
-            timesteps = torch.randint(0, self.noise_scheduler.config.num_train_timesteps, (B,), device=self.device ).long()
-            noisy_actions = self.noise_scheduler.add_noise(actions, noise, timesteps)
-
-            # predict the noise residual
-            noise_pred = self.nets["policy"]["noise_pred_net"](
-                noisy_actions, timesteps, global_cond=policy_cond
-            )
-
-            losses = {}
-
-            # -------------------------------------------------
-            # 1) main diffusion loss 먼저 계산
-            # -------------------------------------------------
-            mse = F.mse_loss(noise_pred, noise, reduction="none")
-            diffusion_loss = mse.mean()
-
-            loss = diffusion_loss
-
-            # -------------------------------------------------
-            # 3) phase loss 추가
-            # -------------------------------------------------
-
-            current_phase_loss = F.mse_loss(
-                current_phase_logits,
-                current_phase_labels,
-            )
-
-            next_phase_loss = F.mse_loss(
-                next_phase_logits,
-                next_phase_labels,
-            )
-
-            phase_loss = (current_phase_loss + next_phase_loss) / 2
-            loss = loss + self.algo_config.phase_head.loss_weight * phase_loss
-
-
-            losses["Diffusion_Loss"] = diffusion_loss
-            losses["Phase_Loss"] = phase_loss
-            losses["Loss"] = loss
             info["losses"] = TensorUtils.detach(losses)
 
             if not validate:
@@ -265,6 +269,7 @@ class PAPCPolicy(PolicyAlgo):
                     net=self.nets,
                     optim=self.optimizers["policy"],
                     loss=loss,
+                    scaler=self.scaler,
                 )
                 
                 # update Exponential Moving Average of the model weights
