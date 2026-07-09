@@ -105,14 +105,6 @@ def rollout(policy, env, horizon, render=False, video_writer=None, video_skip=5,
     # hack that is necessary for robosuite tasks for deterministic action playback
     obs = env.reset_to(state_dict)
 
-    # plt.imshow
-    plt.ion() 
-    fig, ax = plt.subplots(figsize=(6, 6))
-    init_img = np.zeros((512 + 20, 512, 3), dtype=np.uint8)
-    init_img[512+5:-5, 5:105] = 255
-    im = ax.imshow(init_img)
-    plt.axis('off') # 축 정보 숨기기
-        
     results = {}
     video_count = 0  # video frame counter
     total_reward = 0.
@@ -138,24 +130,20 @@ def rollout(policy, env, horizon, render=False, video_writer=None, video_skip=5,
 
             # visualization
             if render:
-                # env.render(mode="human", camera_name=camera_names[0])
-                current_frame = env.render(mode="rgb_array", height=512, width=512,  camera_name=camera_names[0])
-
-                current_img = np.zeros((512 + 20, 512, 3), dtype=np.uint8)
-                current_img[:512,:512] = current_frame
-                current_img[512+5:-5, 5:105] = 255
-
-                if pred_phase is not None and phase_value is not None:
-                    print(f"current phase [0.0 - 1.0] : {phase_value}")
-                    current_img[512+5:-5, 5:5+int(100*phase_value[0]),1:] = 0  # red color
-
-                im.set_data(current_img)
-                plt.pause(0.000001)
+                env.render(mode="human", camera_name=camera_names[0])
             if video_writer is not None:
                 if video_count % video_skip == 0:
                     video_img = []
                     for cam_name in camera_names:
-                        video_img.append(env.render(mode="rgb_array", height=512, width=512, camera_name=cam_name))
+                        # video_img.append(env.render(mode="rgb_array", height=512, width=512, camera_name=cam_name))
+                        current_frame = env.render(mode="rgb_array", height=512, width=512, camera_name=cam_name)
+                        current_img = np.zeros((512 + 20, 512, 3), dtype=np.uint8)
+                        current_img[:512,:512] = current_frame
+                        current_img[512+5:-5, 5:105] = 255
+                        if pred_phase is not None and phase_value is not None:
+                            print(f"current phase [0.0 - 1.0] : {phase_value}")
+                            current_img[512+5:-5, 5:5+int(100*phase_value[0]),1:] = 0  # red color
+                        video_img.append(current_img)
                     video_img = np.concatenate(video_img, axis=1) # concatenate horizontally
                     video_writer.append_data(video_img)
                 video_count += 1
