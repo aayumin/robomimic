@@ -56,6 +56,7 @@ import json
 import h5py
 import imageio
 import numpy as np
+import matplotlib.pyplot as plt
 from copy import deepcopy
 
 import torch
@@ -64,13 +65,14 @@ import robomimic
 import robomimic.utils.file_utils as FileUtils
 import robomimic.utils.torch_utils as TorchUtils
 import robomimic.utils.tensor_utils as TensorUtils
+import robomimic.utils.train_utils as TrainUtils
 import robomimic.utils.obs_utils as ObsUtils
 from robomimic.envs.env_base import EnvBase
 from robomimic.envs.wrappers import EnvWrapper
 from robomimic.algo import RolloutPolicy
 
 
-def rollout(policy, env, horizon, render=False, video_writer=None, video_skip=5, return_obs=False, camera_names=None):
+def rollout(policy, env, horizon, render=False, video_writer=None, video_skip=5, return_obs=False, camera_names=None, pred_phase = None):
     """
     Helper function to carry out rollouts. Supports on-screen rendering, off-screen rendering to a video, 
     and returns the rollout trajectory.
@@ -103,6 +105,14 @@ def rollout(policy, env, horizon, render=False, video_writer=None, video_skip=5,
     # hack that is necessary for robosuite tasks for deterministic action playback
     obs = env.reset_to(state_dict)
 
+    # plt.imshow
+    plt.ion() 
+    fig, ax = plt.subplots(figsize=(6, 6))
+    init_img = np.zeros((512 + 20, 512, 3), dtype=np.uint8)
+    init_img[512+5:-5, 5:105] = 255
+    im = ax.imshow(init_img)
+    plt.axis('off') # 축 정보 숨기기
+        
     results = {}
     video_count = 0  # video frame counter
     total_reward = 0.
@@ -114,7 +124,10 @@ def rollout(policy, env, horizon, render=False, video_writer=None, video_skip=5,
         for step_i in range(horizon):
 
             # get action from policy
-            act = policy(ob=obs)
+            if pred_phase is not None:
+                act, phase_value = policy(ob=obs, return_phase=True)
+            else:
+                act = policy(ob=obs, return_phase=True)
 
             # play action
             next_obs, r, done, _ = env.step(act)
@@ -125,7 +138,19 @@ def rollout(policy, env, horizon, render=False, video_writer=None, video_skip=5,
 
             # visualization
             if render:
-                env.render(mode="human", camera_name=camera_names[0])
+                # env.render(mode="human", camera_name=camera_names[0])
+                current_frame = env.render(mode="rgb_array", height=512, width=512,  camera_name=camera_names[0])
+
+                current_img = np.zeros((512 + 20, 512, 3), dtype=np.uint8)
+                current_img[:512,:512] = current_frame
+                current_img[512+5:-5, 5:105] = 255
+
+                if pred_phase is not None and phase_value is not None:
+                    print(f"current phase [0.0 - 1.0] : {phase_value}")
+                    current_img[512+5:-5, 5:5+int(100*phase_value[0]),1:] = 0  # red color
+
+                im.set_data(current_img)
+                plt.pause(0.000001)
             if video_writer is not None:
                 if video_count % video_skip == 0:
                     video_img = []
@@ -237,6 +262,7 @@ def run_trained_agent(args):
             video_skip=args.video_skip, 
             return_obs=(write_dataset and args.dataset_obs),
             camera_names=args.camera_names,
+            pred_phase = args.phase,
         )
         rollout_stats.append(stats)
 
@@ -290,7 +316,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--n_rollouts",
         type=int,
-        default=27,
+        default=10,
         help="number of rollouts",
     )
 
@@ -330,7 +356,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--video_skip",
         type=int,
-        default=5,
+        default=1,
         help="render frames to video every n steps",
     )
 
@@ -359,6 +385,11 @@ if __name__ == "__main__":
             observations are excluded and only simulator states are saved)",
     )
 
+
+    parser.add_argument(
+        "--phase",
+        action='store_true',
+    )
     # for seeding before starting rollouts
     parser.add_argument(
         "--seed",

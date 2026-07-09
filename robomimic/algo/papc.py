@@ -253,7 +253,11 @@ class PAPCPolicy(PolicyAlgo):
                 )
 
                 phase_loss = (current_phase_loss + next_phase_loss) / 2
-                loss = loss + self.algo_config.phase_head.loss_weight * phase_loss
+                # loss = loss + self.algo_config.phase_head.loss_weight * phase_loss
+                if self.algo_config.phase_head.decay_epochs > 0:
+                    alpha = self.algo_config.phase_head.loss_weight * max(0, (self.algo_config.phase_head.decay_epochs - epoch)) / self.algo_config.phase_head.decay_epochs
+                else: alpha = self.algo_config.phase_head.loss_weight
+                loss = loss + alpha * phase_loss
 
 
                 losses["Diffusion_Loss"] = diffusion_loss
@@ -312,7 +316,7 @@ class PAPCPolicy(PolicyAlgo):
         self.obs_queue = obs_queue
         self.action_queue = action_queue
     
-    def get_action(self, obs_dict, goal_dict=None):
+    def get_action(self, obs_dict, goal_dict=None, return_phase = False):
         """
         Get policy action outputs.
 
@@ -326,14 +330,12 @@ class PAPCPolicy(PolicyAlgo):
         # obs_dict: key: [1,D]
         To = self.algo_config.horizon.observation_horizon
         Ta = self.algo_config.horizon.action_horizon
+
+        phase_value = None
+        # if len(self.action_queue) == 0:
+        action_sequence, phase_value = self._get_action_trajectory(obs_dict=obs_dict, return_phase = return_phase)
+        self.action_queue.extend(action_sequence[0])
         
-        if len(self.action_queue) == 0:
-            # no actions left, run inference
-            # [1,T,Da]
-            action_sequence = self._get_action_trajectory(obs_dict=obs_dict)
-            
-            # put actions into the queue
-            self.action_queue.extend(action_sequence[0])
         
         # has action, execute from left to right
         # [Da]
@@ -341,9 +343,14 @@ class PAPCPolicy(PolicyAlgo):
         
         # [1,Da]
         action = action.unsqueeze(0)
-        return action
+
+
+        if return_phase:
+            return action, phase_value
+        else:
+            return action
         
-    def _get_action_trajectory(self, obs_dict, goal_dict=None):
+    def _get_action_trajectory(self, obs_dict, goal_dict=None, return_phase = False):
         assert not self.nets.training
         To = self.algo_config.horizon.observation_horizon
         Ta = self.algo_config.horizon.action_horizon
@@ -380,7 +387,7 @@ class PAPCPolicy(PolicyAlgo):
         # reshape observation to (B,obs_horizon*obs_dim)
         obs_cond = obs_features.flatten(start_dim=1)
 
-        _, _, phase_emb = nets["policy"]["aux_head"](obs_cond)
+        cur_phase_logits, _, phase_emb = nets["policy"]["aux_head"](obs_cond)
         
 
         policy_cond = torch.cat([obs_cond, phase_emb], dim=-1)
@@ -412,7 +419,11 @@ class PAPCPolicy(PolicyAlgo):
         start = To - 1
         end = start + Ta
         action = naction[:,start:end]
-        return action
+
+        if return_phase:
+            return action, cur_phase_logits[:,0]
+        else:
+            return action, None
 
     def serialize(self):
         """
