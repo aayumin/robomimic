@@ -45,10 +45,11 @@ class PAPCConfig(BaseConfig):
 
 
         # aux head
+        self.algo.loss_weight.diffusion_loss = 1.0
+        self.algo.loss_weight.phase_loss = 0.1
+        self.algo.loss_weight.aux_decay_epochs = 1000
         self.algo.aux_head.hidden_dim = 256
         self.algo.phase_head.enabled = True
-        self.algo.phase_head.loss_weight = 0.1
-        self.algo.phase_head.decay_epochs = 1000
         self.algo.phase_condition.enabled = True
         self.algo.phase_condition.emb_dim = 16
         self.algo.importance_score.enabled = False

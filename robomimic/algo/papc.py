@@ -236,7 +236,7 @@ class PAPCPolicy(PolicyAlgo):
                 mse = F.mse_loss(noise_pred, noise, reduction="none")
                 diffusion_loss = mse.mean()
 
-                loss = diffusion_loss
+                loss = self.algo_config.loss_weight.diffusion_loss * diffusion_loss
 
                 # -------------------------------------------------
                 # 3) phase loss 추가
@@ -252,11 +252,12 @@ class PAPCPolicy(PolicyAlgo):
                     next_phase_labels,
                 )
 
+                
+
                 phase_loss = (current_phase_loss + next_phase_loss) / 2
-                # loss = loss + self.algo_config.phase_head.loss_weight * phase_loss
-                if self.algo_config.phase_head.decay_epochs > 0:
-                    alpha = self.algo_config.phase_head.loss_weight * max(0, (self.algo_config.phase_head.decay_epochs - epoch)) / self.algo_config.phase_head.decay_epochs
-                else: alpha = self.algo_config.phase_head.loss_weight
+                if self.algo_config.loss_weight.aux_decay_epochs > 0:
+                    alpha = self.algo_config.loss_weight.phase_loss * max(0, (self.algo_config.loss_weight.aux_decay_epochs - epoch)) / self.algo_config.loss_weight.aux_decay_epochs
+                else: alpha = self.algo_config.loss_weight.phase_loss
                 loss = loss + alpha * phase_loss
 
 

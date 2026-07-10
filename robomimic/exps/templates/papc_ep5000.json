@@ -71,7 +71,7 @@
         "batch_size": 500,
         "num_epochs": 5000,
         "seed": 1,
-        "max_grad_norm": null
+        "max_grad_norm": 1.0
     },
     "algo": {
         "optim_params": {
@@ -91,6 +91,11 @@
                 }
             }
         },
+        "loss_weight": {
+            "diffusion_loss": 1.0,
+            "phase_loss": 10.0,
+            "aux_decay_epochs":5000
+        },
         "importance_score": {
             "enabled": false,
             "ignore_threshold": 0.05,
@@ -104,9 +109,7 @@
             "hidden_dim": 256
         },
         "phase_head": {
-            "enabled": true,
-            "loss_weight": 0.1,
-            "decay_epochs": 0
+            "enabled": true
         },
         "horizon": {
             "observation_horizon": 2,
