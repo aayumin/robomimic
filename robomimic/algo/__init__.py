@@ -16,4 +16,5 @@ from robomimic.algo.tcca import TCCAPolicy
 from robomimic.algo.drcan import DRCANPolicy
 from robomimic.algo.epil import EPILPolicy
 from robomimic.algo.papc import PAPCPolicy
+from robomimic.algo.popc import POPCPolicy
 from robomimic.algo.spad import SPADPolicy

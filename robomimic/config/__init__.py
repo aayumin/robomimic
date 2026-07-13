@@ -17,4 +17,5 @@ from robomimic.config.tcca_config import TCCAConfig
 from robomimic.config.drcan_config import DRCANConfig
 from robomimic.config.epil_config import EPILConfig
 from robomimic.config.papc_config import PAPCConfig
+from robomimic.config.popc_config import POPCConfig
 from robomimic.config.spad_config import SPADConfig
