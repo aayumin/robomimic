@@ -3,6 +3,7 @@ Implementation of Diffusion Policy https://diffusion-policy.cs.columbia.edu/ by 
 """
 from typing import Callable, Union
 import math
+from scipy.stats import chi2
 from collections import OrderedDict, deque
 from packaging.version import parse as parse_version
 import random
@@ -92,6 +93,13 @@ class POPCPolicy(PolicyAlgo):
                 "aux_head": aux_head,
             })
         })
+
+        # Latent OOD statistics saved together with model state_dict
+        if self.algo_config.ood.enabled:
+            nets["policy"].register_buffer("ood_mean", torch.zeros(phase_emb_dim, device=self.device))
+            nets["policy"].register_buffer("ood_cov", torch.eye(phase_emb_dim, device=self.device))
+            nets["policy"].register_buffer("ood_num_updates", torch.zeros((), dtype=torch.long, device=self.device))
+            self.ood_threshold = float(chi2.ppf(0.95, df=phase_emb_dim))  # ood_quantile = 0.95
 
         nets = nets.float().to(self.device)
         
@@ -207,14 +215,41 @@ class POPCPolicy(PolicyAlgo):
                 obs_cond = obs_features.flatten(start_dim=1)
 
                 
-
-
                 current_phase_logits, next_phase_logits, phase_emb = self.nets["policy"]["aux_head"](obs_cond)
                 current_phase_labels = batch["phase_labels"][:, 0]  # [B]
                 next_phase_labels = batch["phase_labels"][:, -1]  # [B]
                 current_phase_logits = current_phase_logits[:, 0]
                 next_phase_logits = next_phase_logits[:, 0]
 
+
+                # OOD
+                if self.algo_config.ood.enabled:
+                    policy_net = self.nets["policy"]
+                    temperature = max(float(self.algo_config.ood.temperature), 1e-6)
+                    momentum = float(getattr(self.algo_config.ood, "momentum", 0.99))
+                    cov_eps = float(getattr(self.algo_config.ood, "cov_eps", 1e-4))
+
+                    with torch.amp.autocast("cuda", enabled=False):
+                        ood_latent = phase_emb.detach().float()
+                        ood_initialized = policy_net.ood_num_updates.item() > 0
+
+                        if ood_initialized:
+                            diff = ood_latent - policy_net.ood_mean
+                            cov = policy_net.ood_cov + cov_eps * torch.eye(phase_emb.shape[-1], device=self.device)
+                            solved = torch.linalg.solve(cov, diff.transpose(0, 1)).transpose(0, 1)
+                            ood_score = (diff * solved).sum(dim=-1).clamp_min(0.0)
+                            id_gate = torch.sigmoid((self.ood_threshold - ood_score) / temperature)
+                        else:
+                            ood_score = torch.zeros(B, device=self.device)
+                            id_gate = torch.ones(B, device=self.device)
+
+                    # [POPC ADDED] OOD samples do not advance the target phase
+                    phase_delta_labels = (next_phase_labels - current_phase_labels).clamp_min(0.0)
+                    next_phase_labels = torch.clamp(current_phase_labels + id_gate * phase_delta_labels, 0.0, 1.0)
+                else:
+                    ood_score = torch.zeros(B, device=self.device)
+                    id_gate = torch.ones(B, device=self.device)
+                    
 
                 policy_cond = torch.cat([obs_cond, phase_emb], dim=-1)
 
@@ -261,10 +296,48 @@ class POPCPolicy(PolicyAlgo):
                 loss = loss + alpha * phase_loss
 
 
+                if self.algo_config.ood.enabled:
+                    ood_mean = self.nets["policy"].ood_mean.detach()
+                    ood_cov = self.nets["policy"].ood_cov.detach()
+                    ood_cov_diag = torch.diagonal(ood_cov)
+                    losses["_OOD_Mean_Norm"] = torch.linalg.vector_norm(ood_mean)
+                    losses["_OOD_Cov_Diag_Mean"] = ood_cov_diag.mean()
+                    losses["_OOD_Cov_Frobenius_Norm"] = torch.linalg.matrix_norm(ood_cov)
                 losses["Diffusion_Loss"] = diffusion_loss
                 losses["Phase_Loss"] = phase_loss
+                losses["_OOD_Score"] = ood_score.mean()
+                losses["_ID_Gate"] = id_gate.mean()
+                losses["_OOD_Rate"] = (ood_score > self.ood_threshold).float().mean() if self.algo_config.ood.enabled else -1.0
                 losses["Loss"] = loss
-            
+
+
+            # [POPC ADDED] Update OOD statistics after scoring the current batch
+            if self.algo_config.ood.enabled and not validate:
+                with torch.no_grad():
+                    policy_net = self.nets["policy"]
+                    ood_latent = phase_emb.detach().float()
+                    update_mask = torch.ones(B, dtype=torch.bool, device=self.device) if policy_net.ood_num_updates.item() == 0 else ood_score <= self.ood_threshold
+
+                    if update_mask.sum().item() >= 2:
+                        update_latent = ood_latent[update_mask]
+                        batch_mean = update_latent.mean(dim=0)
+                        centered = update_latent - batch_mean
+                        batch_cov = centered.transpose(0, 1) @ centered / (update_latent.shape[0] - 1)
+
+                        if policy_net.ood_num_updates.item() == 0:
+                            policy_net.ood_mean.copy_(batch_mean)
+                            policy_net.ood_cov.copy_(batch_cov)
+                        else:
+                            momentum = float(getattr(self.algo_config.ood, "momentum", 0.99))
+                            old_mean = policy_net.ood_mean.clone()
+                            mean_diff = (old_mean - batch_mean).unsqueeze(1)
+                            policy_net.ood_mean.mul_(momentum).add_(batch_mean, alpha=1.0 - momentum)
+                            policy_net.ood_cov.mul_(momentum).add_(batch_cov, alpha=1.0 - momentum)
+                            policy_net.ood_cov.add_(mean_diff @ mean_diff.transpose(0, 1), alpha=momentum * (1.0 - momentum))
+
+                        policy_net.ood_num_updates.add_(1)
+
+                        
             info["losses"] = TensorUtils.detach(losses)
 
             if not validate:

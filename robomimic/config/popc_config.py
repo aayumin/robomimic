@@ -44,17 +44,25 @@ class POPCConfig(BaseConfig):
         self.algo.optim_params.policy.regularization.L2 = 1e-6          # L2 regularization strength
 
 
-        # aux head
+        # loss weight
         self.algo.loss_weight.diffusion_loss = 1.0
         self.algo.loss_weight.phase_loss = 0.1
         self.algo.loss_weight.aux_decay_epochs = 1000
+
+        # OOD detection 
+        self.algo.ood.enabled = True 
+        # self.algo.ood.threshold = 10.0 # OOD 판정 기준인 squared Mahalanobis distance
+        self.algo.ood.temperature = 1.0 # soft ID gate의 sigmoid temperature
+        self.algo.ood.momentum = 0.99 # OOD mean/covariance EMA 업데이트 비율
+        self.algo.ood.cov_eps = 1e-4 # covariance 역행렬 안정화를 위한 diagonal regularization
+
+
+        # phase head
         self.algo.aux_head.hidden_dim = 256
         self.algo.phase_head.enabled = True
         self.algo.phase_condition.enabled = True
         self.algo.phase_condition.emb_dim = 16
-        self.algo.importance_score.enabled = False
-        self.algo.importance_score.ignore_threshold = 0.05
-        self.algo.importance_score.maximize_threshold = 0.30
+
 
         # horizon parameters
         self.algo.horizon.observation_horizon = 2
