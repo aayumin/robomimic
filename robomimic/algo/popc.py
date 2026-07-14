@@ -406,10 +406,10 @@ class POPCPolicy(PolicyAlgo):
         Ta = self.algo_config.horizon.action_horizon
 
         phase_value = None
-        # if len(self.action_queue) == 0:
-        action_sequence, phase_value = self._get_action_trajectory(obs_dict=obs_dict, return_phase = return_phase)
-        self.action_queue.extend(action_sequence[0])
-        
+        if len(self.action_queue) == 0:
+            action_sequence, phase_value = self._get_action_trajectory(obs_dict=obs_dict, return_phase = return_phase)
+            self.action_queue.extend(action_sequence[0])
+            
         
         # has action, execute from left to right
         # [Da]

@@ -664,6 +664,7 @@ class RolloutPolicy(object):
         """Pretty print network description"""
         return self.policy.__repr__()
 
+    @torch.inference_mode()
     def __call__(self, ob, goal=None, batched_ob=False, return_phase=False):
         """
         Produce action from raw observation dict (and maybe goal dict) from environment.
