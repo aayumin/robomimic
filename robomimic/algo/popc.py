@@ -99,7 +99,9 @@ class POPCPolicy(PolicyAlgo):
             nets["policy"].register_buffer("ood_mean", torch.zeros(phase_emb_dim, device=self.device))
             nets["policy"].register_buffer("ood_cov", torch.eye(phase_emb_dim, device=self.device))
             nets["policy"].register_buffer("ood_num_updates", torch.zeros((), dtype=torch.long, device=self.device))
-            self.ood_threshold = float(chi2.ppf(0.95, df=phase_emb_dim))  # ood_quantile = 0.95
+            self.ood_threshold = self.algo_config.ood.threshold if self.algo_config.ood.threshold is not None else float(chi2.ppf(0.95, df=phase_emb_dim))  # ood_quantile = 0.95
+            
+
 
         nets = nets.float().to(self.device)
         

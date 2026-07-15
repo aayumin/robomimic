@@ -98,6 +98,7 @@
         },
         "ood": {
             "enabled": true,
+            "threshold": null,
             "temperature" : 1.0,
             "momentum": 0.99,
             "cov_eps":  1e-4

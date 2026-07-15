@@ -51,7 +51,7 @@ class POPCConfig(BaseConfig):
 
         # OOD detection 
         self.algo.ood.enabled = True 
-        # self.algo.ood.threshold = 10.0 # OOD 판정 기준인 squared Mahalanobis distance
+        self.algo.ood.threshold = None # OOD 판정 기준인 squared Mahalanobis distance  (ex: 10.0, 20.0)
         self.algo.ood.temperature = 1.0 # soft ID gate의 sigmoid temperature
         self.algo.ood.momentum = 0.99 # OOD mean/covariance EMA 업데이트 비율
         self.algo.ood.cov_eps = 1e-4 # covariance 역행렬 안정화를 위한 diagonal regularization
