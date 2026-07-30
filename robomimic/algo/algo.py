@@ -315,6 +315,49 @@ class Algo(object):
         return action_embedding
         
 
+    def get_phase_embedding_for_umap(self, batch):
+        """
+        Extract phase embedding for UMAP visualization.
+
+        Args:
+            batch: processed training batch
+
+        Returns:
+            obs_embedding: torch.Tensor [B, D] 
+        """
+        inputs = {
+            "obs": batch["obs"],
+            "goal": batch["goal_obs"],
+        }
+
+        for k in self.obs_shapes:
+            x = inputs["obs"][k]
+            target_shape = tuple(self.obs_shapes[k])
+
+            if tuple(x.shape[-len(target_shape):]) != target_shape:
+                if len(target_shape) == 3 and x.ndim == 5 and tuple(x.shape[-3:]) == (target_shape[1], target_shape[2], target_shape[0]):
+                    inputs["obs"][k] = x.permute(0, 1, 4, 2, 3).contiguous()
+                elif len(target_shape) == 3 and x.ndim == 4 and tuple(x.shape[-3:]) == (target_shape[1], target_shape[2], target_shape[0]):
+                    inputs["obs"][k] = x.permute(0, 3, 1, 2).contiguous()
+                else:
+                    raise AssertionError(
+                        "Obs key {} has shape {}, but encoder expects trailing shape {}".format(
+                            k, tuple(x.shape), target_shape
+                        )
+                    )
+            assert inputs["obs"][k].ndim - 2 == len(self.obs_shapes[k])
+
+        
+        obs_features = TensorUtils.time_distributed(inputs, self.nets["policy"]["obs_encoder"], inputs_as_kwargs=True)
+        assert obs_features.ndim == 3  # [B, T, D]
+
+        obs_cond = obs_features.flatten(start_dim=1)        
+        _, _, phase_emb = self.nets["policy"]["aux_head"](obs_cond)
+                
+
+        return phase_emb
+
+
     def get_obs_embedding_for_umap(self, batch, use_obs_cond=False):
         """
         Extract observation embedding for UMAP visualization.
