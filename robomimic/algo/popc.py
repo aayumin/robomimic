@@ -138,6 +138,7 @@ class POPCPolicy(PolicyAlgo):
         self.action_check_done = False
         self.obs_queue = None
         self.action_queue = None
+        self.phase_queue = None
         self.scaler = torch.cuda.amp.GradScaler()
     
     def process_batch_for_training(self, batch):
@@ -389,8 +390,10 @@ class POPCPolicy(PolicyAlgo):
         Ta = self.algo_config.horizon.action_horizon
         obs_queue = deque(maxlen=To)
         action_queue = deque(maxlen=Ta)
+        phase_queue = deque(maxlen=Ta)
         self.obs_queue = obs_queue
         self.action_queue = action_queue
+        self.phase_queue = phase_queue
     
     def get_action(self, obs_dict, goal_dict=None, return_phase = False):
         """
@@ -407,18 +410,22 @@ class POPCPolicy(PolicyAlgo):
         To = self.algo_config.horizon.observation_horizon
         Ta = self.algo_config.horizon.action_horizon
 
-        phase_value = None
+        
         if len(self.action_queue) == 0:
-            action_sequence, phase_value = self._get_action_trajectory(obs_dict=obs_dict, return_phase = return_phase)
-            self.action_queue.extend(action_sequence[0])
+            action_sequence, pred_phase = self._get_action_trajectory(obs_dict=obs_dict, return_phase = return_phase)
+            # print(action_sequence.shape) # (1, Ta, action_dim)
+            # print(pred_phase.shape)  # (1,)
+            self.action_queue.extend(action_sequence[0]) # (Ta, action_dim)
+            self.phase_queue.extend(pred_phase.repeat(Ta)) # (Ta)
             
         
         # has action, execute from left to right
-        # [Da]
-        action = self.action_queue.popleft()
+        action = self.action_queue.popleft() # [Da]
+        phase_value = self.phase_queue.popleft() # []
         
-        # [1,Da]
-        action = action.unsqueeze(0)
+        
+        action = action.unsqueeze(0) # [1,Da]
+        phase_value = phase_value.unsqueeze(0) # [1, ]
 
 
         if return_phase:
