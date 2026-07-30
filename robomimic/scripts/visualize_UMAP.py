@@ -149,6 +149,8 @@ def save_embedding_umap(model, data_loader, save_dir, embedding_type="phase", ma
         cbar.set_label("phase_ids")
         plt.title("{} embedding UMAP by Phase ".format(embedding_type))
         plt.tight_layout()
+        plt.xticks([])  
+        plt.yticks([])
         plt.savefig(os.path.join(save_dir, "{}_emb_umap_by_phase.png".format(embedding_type)), dpi=200)
         plt.close()
 
@@ -158,6 +160,8 @@ def save_embedding_umap(model, data_loader, save_dir, embedding_type="phase", ma
         cbar = plt.colorbar(sc, label="phase_labels")
         plt.title("{} embedding UMAP by Phase".format(embedding_type,))
         plt.tight_layout()
+        plt.xticks([])  
+        plt.yticks([])
         plt.savefig(os.path.join(save_dir, "{}_emb_umap_by_phase.png".format(embedding_type)), dpi=200)
         plt.close()
 
