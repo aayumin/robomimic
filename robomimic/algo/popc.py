@@ -415,6 +415,7 @@ class POPCPolicy(PolicyAlgo):
             action_sequence, pred_phase = self._get_action_trajectory(obs_dict=obs_dict, return_phase = return_phase)
             # print(action_sequence.shape) # (1, Ta, action_dim)
             # print(pred_phase.shape)  # (1,)
+            if pred_phase is None: pred_phase = torch.zeros(1)
             self.action_queue.extend(action_sequence[0]) # (Ta, action_dim)
             self.phase_queue.extend(pred_phase.repeat(Ta)) # (Ta)
             

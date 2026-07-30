@@ -8,6 +8,7 @@ import imageio
 import numpy as np
 import matplotlib.pyplot as plt
 from copy import deepcopy
+import pickle
 
 import torch
 
@@ -23,7 +24,7 @@ from robomimic.algo import RolloutPolicy
 
 
 
-def rollout(policy, env, horizon, render, video_writer, video_skip, return_obs, camera_names, pred_phase):
+def rollout(policy, env, horizon, render, video_writer, video_skip, return_obs, camera_names, will_pred_phase):
     """
     Helper function to carry out rollouts. Supports on-screen rendering, off-screen rendering to a video, 
     and returns the rollout trajectory.
@@ -55,6 +56,7 @@ def rollout(policy, env, horizon, render, video_writer, video_skip, return_obs, 
     state_dict = env.get_state()
 
     # hack that is necessary for robosuite tasks for deterministic action playback
+    result_dict = {"imgs": [], "phases": []}
     obs = env.reset_to(state_dict)
     video_count = 0  # video frame counter
     total_reward = 0.
@@ -66,10 +68,11 @@ def rollout(policy, env, horizon, render, video_writer, video_skip, return_obs, 
         for step_i in range(horizon):
 
             # get action from policy
-            if pred_phase is not None:
+            if will_pred_phase is not None:
                 act, phase_value = policy(ob=obs, return_phase=True)
             else:
                 act = policy(ob=obs, return_phase=True)
+                phase_value = None
 
             # play action
             next_obs, r, done, _ = env.step(act)
@@ -90,7 +93,7 @@ def rollout(policy, env, horizon, render, video_writer, video_skip, return_obs, 
                         current_img = np.zeros((512 + 20, 512, 3), dtype=np.uint8)
                         current_img[:512,:512] = current_frame
                         current_img[512+5:-5, 5:105] = 255
-                        if pred_phase is not None:
+                        if will_pred_phase is not None:
                             if phase_value is not None:
                                 print(f"\rcurrent phase [0.0 - 1.0] : {phase_value}", end="")
                                 current_img[512+5:-5, 5:5+int(100*phase_value[0]),1:] = 0  # red color
@@ -103,6 +106,8 @@ def rollout(policy, env, horizon, render, video_writer, video_skip, return_obs, 
                     if len(video_img) > 0:
                         video_img = np.concatenate(video_img, axis=1) # concatenate horizontally
                         video_writer.append_data(video_img)
+                        result_dict["imgs"].append(video_img)
+                        result_dict["phases"].append(phase_value.detach().cpu().numpy())
                         video_count += 1
 
             # collect transition
@@ -142,7 +147,7 @@ def rollout(policy, env, horizon, render, video_writer, video_skip, return_obs, 
         else:
             traj[k] = np.array(traj[k])
 
-    return stats, traj
+    return stats, traj, result_dict
 
 
 def get_datetime_path_regex(original_path):
@@ -196,8 +201,8 @@ def run_trained_agent(args):
     rollout_stats = []
     for rollout_idx in range(rollout_num_episodes):
         print("\n\n")
-        print(f"=============== Rollout #{rollout_idx} ===============")
-        stats, traj = rollout(
+        print(f"=============== Rollout #{rollout_idx+1} ===============")
+        stats, traj, result_dict = rollout(
             policy=policy, 
             env=env, 
             horizon=rollout_horizon, 
@@ -206,10 +211,14 @@ def run_trained_agent(args):
             video_skip=args.video_skip, 
             return_obs=False,
             camera_names=args.camera_names,
-            pred_phase = args.phase,
+            will_pred_phase = args.phase,
         )
         rollout_stats.append(stats)
 
+
+        result_save_path = os.path.join(result_dir, f"imgs_and_phases_R{str(rollout_idx+1).zfill(2)}.pkl")
+        with open(result_save_path, "wb") as f:
+            pickle.dump(result_dict, f)
 
     rollout_stats = TensorUtils.list_of_flat_dict_to_dict_of_list(rollout_stats)
     avg_rollout_stats = { k : np.mean(rollout_stats[k]) for k in rollout_stats }
