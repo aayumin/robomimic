@@ -435,6 +435,7 @@ def train(config, device, resume=False):
                 epoch=epoch,
                 video_skip=config.experiment.get("video_skip", 5),
                 terminate_on_success=config.experiment.rollout.terminate_on_success,
+                verbose=True,
             )
 
             # summarize results from rollouts to tensorboard and terminal

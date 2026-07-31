@@ -178,6 +178,7 @@ def run_umap(config, device, embedding_type="phase"):
 
     # path for latest model and backup (to support @resume functionality)
     best_model_path = get_best_model_path(ckpt_dir)
+    print(f"best_model_path: {best_model_path}")
 
     if config.experiment.logging.terminal_output_to_txt:
         logger = PrintLogger(os.path.join(log_dir, 'log.txt'))

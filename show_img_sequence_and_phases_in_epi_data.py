@@ -56,15 +56,16 @@ plt.plot(phases)
 
 ## mode
 
-mode = "show"
-# mode = "save"
+# mode = "show"
+mode = "save"
 
 if mode == "show": plt.show()
 
 if mode == "save":
     print()
-    pick_indices = [0, 2, 3, 5, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 22, 23, 26, 27, 28, 29]
+    # pick_indices = [0, 2, 3, 5, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 22, 23, 26, 27, 28, 29]
     # pick_indices = [ 1, 3, 6, 8, 10, 11, 12, 14, 19, 29, 34, 36, 37 ]
+    pick_indices = [1,7,11,13,15,18,21,31] 
     pick_indices = [v * stride for v in pick_indices]
     for i in pick_indices:
         fpath = f"/home/yuminlim/Downloads/viz_{i}_{phases[i]}.png"
