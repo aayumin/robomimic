@@ -94,7 +94,7 @@
         "loss_weight": {
             "diffusion_loss": 1.0,
             "phase_loss": 0.5,
-            "aux_decay_epochs":1000
+            "aux_decay_epochs":0
         },
         "ood": {
             "enabled": true,

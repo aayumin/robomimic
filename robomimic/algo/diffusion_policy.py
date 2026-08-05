@@ -316,7 +316,7 @@ class DiffusionPolicyUNet(PolicyAlgo):
         self.obs_queue = obs_queue
         self.action_queue = action_queue
     
-    def get_action(self, obs_dict, goal_dict=None):
+    def get_action(self, obs_dict, goal_dict=None, return_phase=False):
         """
         Get policy action outputs.
 
@@ -345,7 +345,11 @@ class DiffusionPolicyUNet(PolicyAlgo):
         
         # [1,Da]
         action = action.unsqueeze(0)
-        return action
+    
+        if return_phase:
+            return action, 0.0
+        else:
+            return action
         
     def _get_action_trajectory(self, obs_dict, goal_dict=None):
         assert not self.nets.training
