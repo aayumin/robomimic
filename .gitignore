@@ -126,6 +126,9 @@ venv.bak/
 # mkdocs documentation
 /site
 
+# for tensorflow
+tb_view/
+
 # mypy
 .mypy_cache/
 *.mp4
@@ -137,3 +140,20 @@ macros_private.py
 
 # experiment templates (.json)
 *.json
+
+
+# dataset
+*.hdf5
+
+
+# shell script
+*.sh
+
+
+# pickle files
+*.pkl
+
+# images and videos
+*.png
+*.jpg
+*.mp4
