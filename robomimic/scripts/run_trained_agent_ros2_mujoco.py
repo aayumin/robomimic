@@ -479,9 +479,9 @@ class RobomimicROS2Inference(Node):
 
             stacked_obs = self.update_observation_history(obs)
 
-            start = time.perf_counter()
+            start_time = time.perf_counter()
 
-            with torch.inference_mode():
+            with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=torch.float16):
                 output = self.policy(ob=stacked_obs)
 
             action = output[0] if isinstance(output, tuple) else output
@@ -500,15 +500,8 @@ class RobomimicROS2Inference(Node):
             msg.data = action.tolist()
             self.action_pub.publish(msg)
 
-            if self.step % max(1, int(self.args.rate)) == 0:
-                inference_ms = (time.perf_counter() - start) * 1000.0
-                self.get_logger().info(
-                    f"step={self.step}, inference={inference_ms:.1f} ms, "
-                    f"absolute_action={np.array2string(action, precision=4)}"
-                )
-
-                shapes = {key: value.shape for key, value in stacked_obs.items()}
-                self.get_logger().info(f"Stacked observation shapes: {shapes}")
+            inference_ms = (time.perf_counter() - start_time) * 1000.0
+            self.get_logger().info(f"step={self.step}, inference={inference_ms:.1f} ms")
 
             self.step += 1
 
@@ -525,7 +518,8 @@ def parse_args():
     parser.add_argument("--agent", type=str, required=True)
     parser.add_argument("--arm", choices=["left", "right", "dual"], required=True)
 
-    parser.add_argument("--rate", type=float, default=20.0)
+    # parser.add_argument("--rate", type=float, default=20.0)
+    parser.add_argument("--rate", type=float, default=100.0)
     parser.add_argument("--max_obs_age", type=float, default=0.5)
 
     parser.add_argument("--active_topic", type=str, default="/robomimic/inference_active")
