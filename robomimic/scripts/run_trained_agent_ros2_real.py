@@ -331,7 +331,7 @@ class RobomimicROS2Inference(Node):
         # ====================================================
 
         expected_action_dim = (
-            14 if args.arm == "dual" else 7
+            16 if args.arm == "dual" else 8
         )
 
         if self.action_dim != expected_action_dim:
@@ -1379,6 +1379,71 @@ class RobomimicROS2Inference(Node):
                         f"{expected}"
                     )
 
+
+    # ========================================================
+    # Action post-processing
+    # ========================================================
+
+    def normalize_quat_xyzw(self, quat):
+        """
+        Normalize quaternion [x, y, z, w].
+
+        Policy output may not be exactly unit-norm, but downstream
+        absolute pose control should receive a valid quaternion.
+        """
+        quat = np.asarray(quat, dtype=np.float64)
+        norm = np.linalg.norm(quat)
+
+        if norm < 1e-8 or not np.isfinite(norm):
+            # Safe fallback: identity quaternion.
+            return np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
+
+        quat = quat / norm
+
+        # Optional canonical hemisphere for consistency.
+        if quat[3] < 0.0:
+            quat = -quat
+
+        return quat.astype(np.float64)
+
+    def postprocess_absolute_action(self, action):
+        """
+        Postprocess real-world absolute action.
+
+        Action format:
+            single arm:
+                [x, y, z, qx, qy, qz, qw, gripper]
+
+            dual arm:
+                left  [x, y, z, qx, qy, qz, qw, gripper]
+                right [x, y, z, qx, qy, qz, qw, gripper]
+        """
+        action = np.asarray(action, dtype=np.float64).copy()
+
+        single_arm_dim = 8
+        num_arms = 2 if self.args.arm == "dual" else 1
+
+        expected_dim = single_arm_dim * num_arms
+
+        if action.size != expected_dim:
+            raise RuntimeError(
+                f"Absolute action dimension mismatch: "
+                f"received={action.size}, expected={expected_dim}"
+            )
+
+        for arm_idx in range(num_arms):
+            start = arm_idx * single_arm_dim
+            quat_start = start + 3
+            quat_end = start + 7
+
+            action[quat_start:quat_end] = self.normalize_quat_xyzw(
+                action[quat_start:quat_end]
+            )
+
+        return action
+
+
+    
     # ========================================================
     # Inference
     # ========================================================
@@ -1515,7 +1580,14 @@ class RobomimicROS2Inference(Node):
                     f"Invalid action: "
                     f"{action}"
                 )
+            
+            action = self.postprocess_absolute_action(action)
 
+            if not np.all(np.isfinite(action)):
+                raise RuntimeError(
+                    f"Invalid postprocessed action: "
+                    f"{action}"
+                )
             # =================================================
             # Session check
             # =================================================
