@@ -43,6 +43,10 @@ class DiffusionPolicyConfig(BaseConfig):
         self.algo.optim_params.policy.learning_rate.do_not_lock_keys()
         self.algo.optim_params.policy.regularization.L2 = 1e-6          # L2 regularization strength
 
+        # phase label generation
+        self.algo.phase_label.action_mode = "relative"  # "relative" or "absolute"
+
+        
         # importance score
         self.algo.importance_score.enabled = False
         self.algo.importance_score.ignore_threshold = 0.1
