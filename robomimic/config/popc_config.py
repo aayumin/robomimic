@@ -44,6 +44,9 @@ class POPCConfig(BaseConfig):
         self.algo.optim_params.policy.regularization.L2 = 1e-6          # L2 regularization strength
 
 
+        # phase label generation
+        self.algo.phase_label.action_mode = "relative"  # "relative" or "absolute"
+
         # loss weight
         self.algo.loss_weight.diffusion_loss = 1.0
         self.algo.loss_weight.phase_loss = 0.1

@@ -185,12 +185,14 @@ def dataset_factory(config, obs_keys, filter_by_attribute=None, dataset_path=Non
         pad_seq_length=config.train.pad_seq_length,
         get_pad_mask=False,
         goal_mode=config.train.goal_mode,
+        action_mode=config.algo.phase_label.action_mode,
         hdf5_cache_mode=config.train.hdf5_cache_mode,
         hdf5_use_swmr=config.train.hdf5_use_swmr,
         hdf5_normalize_obs=config.train.hdf5_normalize_obs,
         filter_by_attribute=filter_by_attribute,
     )
 
+    ds_kwargs["action_mode"] = [ds_cfg.get("action_mode", config.algo.phase_label.action_mode) for ds_cfg in config.train.data]
     ds_kwargs["hdf5_path"] = [ds_cfg["path"] for ds_cfg in config.train.data]
     ds_kwargs["filter_by_attribute"] = [ds_cfg.get("filter_key", filter_by_attribute) for ds_cfg in config.train.data]
     ds_kwargs["demo_limit"] = [ds_cfg.get("demo_limit", None) for ds_cfg in config.train.data]
@@ -243,7 +245,7 @@ def get_dataset(
         
         ds_kwargs_copy = deepcopy(ds_kwargs)
 
-        keys = ["hdf5_path", "filter_by_attribute", "demo_limit"]
+        keys = ["hdf5_path", "filter_by_attribute", "demo_limit", "action_mode"]
 
         for k in keys:
             ds_kwargs_copy[k] = ds_kwargs[k][i]

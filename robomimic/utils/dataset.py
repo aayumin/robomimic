@@ -66,6 +66,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         pad_seq_length=True,
         get_pad_mask=False,
         goal_mode=None,
+        action_mode = 'relative',  
         hdf5_cache_mode=None,
         hdf5_use_swmr=True,
         hdf5_normalize_obs=False,
@@ -105,6 +106,8 @@ class SequenceDataset(torch.utils.data.Dataset):
                 useful for masking loss functions on padded parts of the data.
 
             goal_mode (str): either "last" or None. Defaults to None, which is to not fetch goals
+
+            action_mode (str): either "relative" or "absolute".
 
             hdf5_cache_mode (str): one of ["all", "low_dim", or None]. Set to "all" to cache entire hdf5 
                 in memory - this is by far the fastest for data loading. Set to "low_dim" to cache all 
@@ -155,6 +158,8 @@ class SequenceDataset(torch.utils.data.Dataset):
         if self.action_keys is not None:
             self.dataset_keys = tuple(set(self.dataset_keys).union(set(self.action_keys)))
 
+        assert action_mode in ["relative", "absolute"], f"Unsupported action_mode: {action_mode}"
+        self.action_mode = action_mode
 
         self.action_config = action_config
 
@@ -189,7 +194,7 @@ class SequenceDataset(torch.utils.data.Dataset):
 
         # per-episode pause-aware normalized phase progress
         for ep in self.demos:
-            phase_label_arr = self.make_pause_aware_phase_info(ep)
+            phase_label_arr = self.make_pause_aware_phase_info(ep, action_mode = self.action_mode)
             self._hdf5_file.add_temporary_data(f"data/{ep}/phase_labels", phase_label_arr)
 
 
@@ -238,57 +243,116 @@ class SequenceDataset(torch.utils.data.Dataset):
 
         self.close_and_delete_hdf5_handle()
 
-    def smooth_gripper_actions(self, actions, sigma=3.0):
+
+    def smooth_gripper_actions(self, actions, sigma=3.0, transition_threshold=0.5):
+        """
+        Convert large gripper open / close transitions into smooth Gaussian event signals.
+
+        This is mainly useful for robomimic-style relative action where the last action
+        dimension is a gripper command. Small continuous gripper noise is ignored.
+        """
         epi_len = len(actions)
-        gripper_transition_indices = np.where(np.diff(actions[:, -1]) != 0)[0]
-        gaussian_signal = np.zeros(epi_len)
-        steps = np.arange(epi_len)
-        
+        gripper = actions[:, -1].astype(np.float32)
+
+        gripper_delta = np.abs(np.diff(gripper))
+        gripper_transition_indices = np.where(gripper_delta > transition_threshold)[0]
+
+        gaussian_signal = np.zeros(epi_len, dtype=np.float32)
+        steps = np.arange(epi_len, dtype=np.float32)
+
         for idx in gripper_transition_indices:
             center = idx + 0.5
-            signal = np.exp(-((steps - center) ** 2) / (2 * (sigma ** 2)))
-            gaussian_signal = np.maximum(gaussian_signal, signal)
+            signal = np.exp(-((steps - center) ** 2) / (2.0 * sigma ** 2))
+            gaussian_signal = np.maximum(gaussian_signal, signal.astype(np.float32))
+
         return gaussian_signal
 
 
-    def make_pause_aware_phase_info(self, demo_id, action_dim_slice=None, pause_threshold=1e-2, eps=1e-8):
+    
+    def make_pause_aware_phase_info(self, demo_id, action_mode="relative", pause_threshold=1e-2, eps=1e-8):
         """
         Make annotation-free pause-aware normalized phase progress.
 
-        Progress increases according to accumulated action movement distance.
-        Pause / near-zero action segments contribute almost no progress.
-
         Args:
             demo_id (str): demo key, e.g. "demo_0"
-            action_dim_slice: action dimensions used to measure movement.
-                slice(0, 3) assumes xyz translation action.
-                Use None to use all action dimensions.
+            action_mode (str): "relative" or "absolute".
             pause_threshold (float): movement below this value is treated as pause.
             eps (float): numerical stability.
 
         Returns:
             progress: np.ndarray, shape [demo_length], values in [0, 1]
         """
+        assert action_mode in ["relative", "absolute"], f"Unsupported action_mode: {action_mode}"
+
         action_list = []
         for k in self.action_keys:
             a = self._hdf5_file["data/{}/{}".format(demo_id, k)][()].astype(np.float32)
             if len(a.shape) == 1: a = a.reshape(-1, 1)
-            if a.shape[-1] > 1: a[:, -1] = self.smooth_gripper_actions(a) # maybe gripper at the last idx (?)
             action_list.append(a)
+        actions = np.concatenate(action_list, axis=-1).astype(np.float32)
 
-        actions = np.concatenate(action_list, axis=-1)
-        move_actions = actions if action_dim_slice is None else actions[..., action_dim_slice]
+        if action_mode == "relative":
+            step_move = actions.copy()
+            if step_move.shape[-1] > 1: step_move[:, -1] = self.smooth_gripper_actions(step_move)
 
-        step_dist = np.linalg.norm(move_actions, ord=2, axis=-1).astype(np.float32)
+        else:
+            # ---------------------------------------------------------
+            # absolute action.
+            #
+            # Normalize absolute action values by semantic groups:
+            #   xyz      : dim 0,1,2 share one common scale
+            #   rotation : dim 3,4,5 share one common scale
+            #   gripper  : dim 6 uses its own scale
+            # ---------------------------------------------------------
+            normalized_actions = np.zeros_like(actions, dtype=np.float32)
+
+            def normalize_group(group_values):
+                """
+                Normalize a group of action dimensions using one shared group scale.
+
+                We use per-dim centers but one shared group range.
+                The center does not affect temporal difference, but keeps values bounded.
+                """
+                group_min = group_values.min(axis=0, keepdims=True)
+                group_max = group_values.max(axis=0, keepdims=True)
+                group_center = 0.5 * (group_min + group_max)
+
+                per_dim_range = group_max - group_min
+                group_range = np.max(per_dim_range)
+
+                if group_range < eps:
+                    return np.zeros_like(group_values, dtype=np.float32)
+
+                return (2.0 * (group_values - group_center) / group_range).astype(np.float32)
+
+            # xyz group: dim 0,1,2
+            if actions.shape[-1] >= 3: normalized_actions[:, 0:3] = normalize_group(actions[:, 0:3])
+
+            # rotation group: dim 3,4,5
+            if actions.shape[-1] >= 6: normalized_actions[:, 3:6] = normalize_group(actions[:, 3:6])
+
+            # gripper group: dim 6
+            if actions.shape[-1] >= 7: normalized_actions[:, 6:7] = normalize_group(actions[:, 6:7])
+
+            step_move = np.zeros_like(normalized_actions, dtype=np.float32)
+            step_move[1:] = normalized_actions[1:] - normalized_actions[:-1]
+
+
+            dim_weights = np.ones(step_move.shape[-1], dtype=np.float32)
+            if step_move.shape[-1] >= 6: dim_weights[3:6] = 0.5  
+            if step_move.shape[-1] >= 7: dim_weights[6] = 0.1    
+            step_move = step_move * dim_weights.reshape(1, -1)
+
+        step_dist = np.linalg.norm(step_move, ord=2, axis=-1).astype(np.float32)
         step_dist[step_dist < pause_threshold] = 0.0
+
         accum_dist = np.cumsum(step_dist)
         total_dist = accum_dist[-1]
 
         if total_dist < eps:
             progress = np.linspace(0.0, 1.0, actions.shape[0], dtype=np.float32)
         else:
-            progress = accum_dist / max(total_dist, eps)
-            progress = np.clip(progress, 0.0, 1.0).astype(np.float32)
+            progress = np.clip(accum_dist / max(total_dist, eps), 0.0, 1.0).astype(np.float32)
 
         progress[0] = 0.0
         progress[-1] = 1.0
