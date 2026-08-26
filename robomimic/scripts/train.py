@@ -393,35 +393,6 @@ def train(config, device, resume=False):
                 action_normalization_stats=action_normalization_stats,
             )
 
-            # TrainUtils.save_embedding_umap(
-            #         model=model,
-            #         data_loader=valid_loader if valid_loader is not None else train_loader,
-            #         save_dir=os.path.join(log_dir, "umap"),
-            #         epoch=epoch,
-            #         embedding_type="obs",
-            #         max_points=5000,
-            #         use_obs_cond=False,
-            # )
-
-            # if "action_encoder" in model.nets["policy"]:
-            #     TrainUtils.save_embedding_umap(
-            #         model=model,
-            #         data_loader=valid_loader if valid_loader is not None else train_loader,
-            #         save_dir=os.path.join(log_dir, "umap"),
-            #         epoch=epoch,
-            #         embedding_type="action",
-            #         max_points=5000,
-            #     )
-            
-            # if "obs_projection" in model.nets["policy"] and "action_projection" in model.nets["policy"]:
-            #     TrainUtils.save_embedding_umap(
-            #         model=model,
-            #         data_loader=valid_loader if valid_loader is not None else train_loader,
-            #         save_dir=os.path.join(log_dir, "umap"),
-            #         epoch=epoch,
-            #         embedding_type="obs_action_project",
-            #         max_points=5000,
-            #     )
 
             num_episodes = config.experiment.rollout.n
             all_rollout_logs, video_paths = TrainUtils.rollout_with_stats(
@@ -525,12 +496,11 @@ def convert_config_for_images(config):
     # using high-dimensional images - don't load entire dataset into memory, and smaller batch size
     config.train.hdf5_cache_mode = "low_dim"
     config.train.num_data_workers = 0
-    # config.train.batch_size = 16
     config.train.batch_size = 8
 
     # replace object with rgb modality
     config.observation.modalities.obs.low_dim = ["robot0_eef_pos", "robot0_eef_quat", "robot0_gripper_qpos"]
-    config.observation.modalities.obs.rgb = ["agentview_image"]
+    # config.observation.modalities.obs.rgb = ["agentview_image"]  # available images can depend on datasets
 
     # set up visual encoders
     config.observation.encoder.rgb.core_class = "VisualCore"
@@ -559,8 +529,10 @@ def main(args):
         # the external config has keys not present in the base algo config
         with config.values_unlocked():
             config.update(ext_cfg)
+
     else:
         config = config_factory(args.algo)
+
 
     if args.dataset is not None:
         config.train.data = [{"path": args.dataset}]
@@ -593,6 +565,7 @@ def main(args):
 
     # for image
     config = convert_config_for_images(config)
+
 
     # lock config to prevent further modifications and ensure missing keys raise errors
     config.lock()
