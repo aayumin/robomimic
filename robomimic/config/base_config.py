@@ -227,6 +227,14 @@ class BaseConfig(Config):
         }
 
 
+        self.train.phase_config ={
+            "preprocess": {
+                "enabled": True,
+                "method": "pause-aware"
+            }
+        }
+
+
         self.train.augmentation = {
             "cutout": {
                 "enabled": False,

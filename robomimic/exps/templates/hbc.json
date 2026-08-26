@@ -65,6 +65,12 @@
                 "normalization": null
             }
         },
+        "phase_config": {
+            "preprocess": {
+                "enabled": true,
+                "method": "pause-aware"
+            }
+        },
         "goal_mode": null,
         "cuda": true,
         "batch_size": 100,

@@ -59,6 +59,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         action_keys,
         dataset_keys,
         action_config,
+        phase_config,
         augmentation_config=None,
         frame_stack=1,
         seq_length=1,
@@ -162,6 +163,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.action_mode = action_mode
 
         self.action_config = action_config
+        self.phase_config = phase_config
 
         self.n_frame_stack = frame_stack
         assert self.n_frame_stack >= 1
@@ -194,7 +196,12 @@ class SequenceDataset(torch.utils.data.Dataset):
 
         # per-episode pause-aware normalized phase progress
         for ep in self.demos:
-            phase_label_arr = self.make_pause_aware_phase_info(ep, action_mode = self.action_mode)
+            # pause-aware phase_labels.
+            if self.phase_config["preprocess"]["enabled"] and self.phase_config["preprocess"]["method"] == "pause-aware":
+                phase_label_arr = self.make_pause_aware_phase_info(ep, action_mode = self.action_mode)
+            else:  # default phase
+                phase_label_arr = self.make_default_phase_info(ep)
+            
             self._hdf5_file.add_temporary_data(f"data/{ep}/phase_labels", phase_label_arr)
 
 
@@ -266,6 +273,31 @@ class SequenceDataset(torch.utils.data.Dataset):
             gaussian_signal = np.maximum(gaussian_signal, signal.astype(np.float32))
 
         return gaussian_signal
+
+    def make_default_phase_info(self, demo_id):
+        """
+        Make default normalized phase progress based only on frame index.
+
+        Args:
+            demo_id (str): demo key, e.g. "demo_0".
+
+        Returns:
+            progress: np.ndarray, shape [demo_length], values in [0, 1]
+        """
+        assert len(self.action_keys) > 0, "self.action_keys must not be empty"
+
+        # All action streams should have the same temporal length.
+        demo_length = self._hdf5_file[
+            "data/{}/{}".format(demo_id, self.action_keys[0])
+        ].shape[0]
+
+        if demo_length == 0:
+            return np.empty((0,), dtype=np.float32)
+
+        if demo_length == 1:
+            return np.zeros((1,), dtype=np.float32)
+
+        return np.linspace(0.0, 1.0, demo_length, dtype=np.float32)
 
 
     
