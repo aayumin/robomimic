@@ -160,20 +160,22 @@ def get_shape_metadata_from_dataset(dataset_config, action_keys, all_obs_keys=No
         all_obs_keys = [k for k in demo["obs"]]
 
     for k in sorted(all_obs_keys):
-        if k == LangUtils.LANG_EMB_OBS_KEY:
-            # NOTE: currently supporting fixed language embedding per dataset
-            ## that is fetched from dataset config and not from file
-            assert "lang" in dataset_config, "Expected 'lang' key in dataset config."
-            initial_shape = LangUtils.get_lang_emb_shape()
-        else:
-            initial_shape = demo["obs/{}".format(k)].shape[1:]
-        if verbose:
-            print("obs key {} with shape {}".format(k, initial_shape))
-        # Store processed shape for each obs key
-        all_shapes[k] = ObsUtils.get_processed_shape(
-            obs_modality=ObsUtils.OBS_KEYS_TO_MODALITIES[k],
-            input_shape=initial_shape,
-        )
+        try:
+            if k == LangUtils.LANG_EMB_OBS_KEY:
+                # NOTE: currently supporting fixed language embedding per dataset
+                ## that is fetched from dataset config and not from file
+                assert "lang" in dataset_config, "Expected 'lang' key in dataset config."
+                initial_shape = LangUtils.get_lang_emb_shape()
+            else:
+                initial_shape = demo["obs/{}".format(k)].shape[1:]
+            if verbose:
+                print("obs key {} with shape {}".format(k, initial_shape))
+            # Store processed shape for each obs key
+            all_shapes[k] = ObsUtils.get_processed_shape(
+                obs_modality=ObsUtils.OBS_KEYS_TO_MODALITIES[k],
+                input_shape=initial_shape,
+            )
+        except: pass
 
     f.close()
 
