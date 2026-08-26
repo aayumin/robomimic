@@ -31,7 +31,7 @@
             "n": 50,
             "horizon": 400,
             "rate": 50,
-            "warmstart": 0,
+            "warmstart": 1000,
             "terminate_on_success": true
         },
         "env_meta_update_dict": {},
@@ -41,8 +41,8 @@
         "data": null,
         "output_dir": "../EPIL_trained_models",
         "normalize_weights_by_ds_size": false,
-        "num_data_workers": 12,
-        "hdf5_cache_mode": "all",
+        "num_data_workers": 0,
+        "hdf5_cache_mode": "low_dim",
         "hdf5_use_swmr": true,
         "hdf5_load_next_obs": false,
         "hdf5_normalize_obs": false,
@@ -162,13 +162,14 @@
                 "low_dim": [
                     "robot0_eef_pos",
                     "robot0_eef_quat",
-                    "robot0_gripper_qpos",
-                    "object"
+                    "robot0_gripper_qpos"
                 ],
-                "rgb": [],
+                "rgb": [
+                    "agentview_image",
+                    "robot0_eye_in_hand_image"
+                ],
                 "depth": [],
                 "scan": []
-                
             },
             "goal": {
                 "low_dim": [],

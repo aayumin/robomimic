@@ -32,14 +32,14 @@
             "n": 50,
             "horizon": 400,
             "rate": 50,
-            "warmstart": 0,
+            "warmstart": 1000,
             "terminate_on_success": true
         }
     },
     "train": {
         "data": null,
         "output_dir": "../bc_transformer_trained_models",
-        "num_data_workers": 12,
+        "num_data_workers": 0,
         "hdf5_cache_mode": "low_dim",
         "hdf5_use_swmr": true,
         "hdf5_load_next_obs": false,
@@ -109,10 +109,12 @@
                 "low_dim": [
                     "robot0_eef_pos",
                     "robot0_eef_quat",
-                    "robot0_gripper_qpos",
-                    "object"
+                    "robot0_gripper_qpos"
                 ],
-                "rgb": [],
+                "rgb": [
+                    "agentview_image",
+                    "robot0_eye_in_hand_image"
+                ],
                 "depth": [],
                 "scan": []
             },
