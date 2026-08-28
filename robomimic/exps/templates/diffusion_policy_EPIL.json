@@ -23,7 +23,7 @@
         "env": null,
         "additional_envs": null,
         "render": false,
-        "render_video": true,
+        "render_video": false,
         "keep_all_videos": false,
         "video_skip": 5,
         "rollout": {
@@ -144,7 +144,7 @@
             "power": 0.75
         },
         "ddpm": {
-            "enabled": true,
+            "enabled": false,
             "num_train_timesteps": 100,
             "num_inference_timesteps": 100,
             "beta_schedule": "squaredcos_cap_v2",
@@ -152,7 +152,7 @@
             "prediction_type": "epsilon"
         },
         "ddim": {
-            "enabled": false,
+            "enabled": true,
             "num_train_timesteps": 100,
             "num_inference_timesteps": 10,
             "beta_schedule": "squaredcos_cap_v2",
