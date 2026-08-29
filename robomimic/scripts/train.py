@@ -496,7 +496,7 @@ def convert_config_for_images(config):
     # using high-dimensional images - don't load entire dataset into memory, and smaller batch size
     config.train.hdf5_cache_mode = "low_dim"
     config.train.num_data_workers = 0
-    config.train.batch_size = 8
+    config.train.batch_size = 4
 
     # replace object with rgb modality
     config.observation.modalities.obs.low_dim = ["robot0_eef_pos", "robot0_eef_quat", "robot0_gripper_qpos"]
@@ -515,6 +515,26 @@ def convert_config_for_images(config):
     config.observation.encoder.rgb.core_kwargs.pool_kwargs.noise_std = 0.0
 
     # observation randomizer class - set to None to use no randomization, or 'CropRandomizer' to use crop randomization
+    config.observation.encoder.rgb.obs_randomizer_class = None
+
+    return config
+
+def convert_config_for_low_dim(config):
+    """
+    Modify config to use only low-dim observations.
+    """
+
+    config.train.hdf5_cache_mode = "all"      
+    config.train.num_data_workers = 2         
+    config.train.batch_size = 64              
+
+    # obs key (low-dim)
+    config.observation.modalities.obs.low_dim = ["robot0_eef_pos", "robot0_eef_quat", "robot0_gripper_qpos","object"]
+    if hasattr(config.observation.modalities.obs, "rgb"):
+        config.observation.modalities.obs.rgb = []
+
+    # 엔코더 설정 초기화 
+    config.observation.encoder.rgb.core_class = None
     config.observation.encoder.rgb.obs_randomizer_class = None
 
     return config

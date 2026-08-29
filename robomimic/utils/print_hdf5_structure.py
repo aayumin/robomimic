@@ -1,11 +1,12 @@
 import h5py
 
 
-path = "datasets/__test__/test_data.hdf5"
+# path = "datasets/__test__/test_data.hdf5"
 # path = "datasets/__test__/test_data_realworld_fix-action-dim_20260817.hdf5"
-path = "datasets/source/coffee.hdf5"
+# path = "datasets/source/coffee.hdf5"
 
-# path = "datasets/square/ph/image_v15.hdf5"
+path = "datasets/square/ph/image_v15.hdf5"
+# path = "datasets/square/ph/low_dim_v15.hdf5"
 # path = "datasets/transport/ph/image_v15.hdf5"
 # path = "datasets/square/ph/low_dim_v15.hdf5"
 # path = "datasets/square/ph/demo_v15.hdf5"
