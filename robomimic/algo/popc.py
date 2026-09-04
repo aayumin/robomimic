@@ -310,7 +310,7 @@ class POPCPolicy(PolicyAlgo):
                 losses["Phase_Loss"] = phase_loss
                 losses["_OOD_Score"] = ood_score.mean()
                 losses["_ID_Gate"] = id_gate.mean()
-                losses["_OOD_Rate"] = (ood_score > self.ood_threshold).float().mean() if self.algo_config.ood.enabled else -1.0
+                losses["_OOD_Rate"] = (ood_score > self.ood_threshold).float().mean() if self.algo_config.ood.enabled else torch.tensor(-1.0)
                 losses["Loss"] = loss
 
 
@@ -340,7 +340,7 @@ class POPCPolicy(PolicyAlgo):
 
                         policy_net.ood_num_updates.add_(1)
 
-                        
+
             info["losses"] = TensorUtils.detach(losses)
 
             if not validate:
