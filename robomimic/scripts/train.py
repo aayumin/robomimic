@@ -515,7 +515,7 @@ def convert_config_for_images(config):
     config.observation.encoder.rgb.core_kwargs.pool_kwargs.noise_std = 0.0
 
     # observation randomizer class - set to None to use no randomization, or 'CropRandomizer' to use crop randomization
-    config.observation.encoder.rgb.obs_randomizer_class = None
+    # config.observation.encoder.rgb.obs_randomizer_class = None
 
     return config
 
