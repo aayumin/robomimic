@@ -53,6 +53,8 @@ Example usage:
 """
 import argparse
 import json
+import re
+import os
 import h5py
 import imageio
 import numpy as np
@@ -113,6 +115,7 @@ def rollout(policy, env, horizon, render=False, video_writer=None, video_skip=5,
         # store observations too
         traj.update(dict(obs=[], next_obs=[]))
     try:
+        # print("########  Start New Episode   ########")
         for step_i in range(horizon):
 
             # get action from policy
@@ -141,8 +144,9 @@ def rollout(policy, env, horizon, render=False, video_writer=None, video_skip=5,
                         current_img[:512,:512] = current_frame
                         current_img[512+5:-5, 5:105] = 255
                         if pred_phase is not None and phase_value is not None:
-                            print(f"current phase [0.0 - 1.0] : {phase_value}")
-                            current_img[512+5:-5, 5:5+int(100*phase_value[0]),1:] = 0  # red color
+                            pass
+                            # print(f"current phase [0.0 - 1.0] : {phase_value}")
+                            # current_img[512+5:-5, 5:5+int(100*phase_value[0]),1:] = 0  # red color
                         video_img.append(current_img)
                     video_img = np.concatenate(video_img, axis=1) # concatenate horizontally
                     video_writer.append_data(video_img)
@@ -190,7 +194,7 @@ def rollout(policy, env, horizon, render=False, video_writer=None, video_skip=5,
 
 def run_trained_agent(args):
     # some arg checking
-    write_video = (args.video_path is not None)
+    write_video = (args.video_path is not None or args.set_video_save_path)
     assert not (args.render and write_video) # either on-screen or video but not both
     if args.render:
         # on-screen rendering can only support one camera
@@ -218,8 +222,10 @@ def run_trained_agent(args):
         ckpt_dict=ckpt_dict, 
         env_name=args.env, 
         render=args.render, 
-        render_offscreen=(args.video_path is not None), 
+        render_offscreen=(args.video_path is not None or args.set_video_save_path), 
         verbose=True,
+        x_range=args.x_range,
+        y_range=args.y_range,
     )
 
     # maybe set seed
@@ -227,10 +233,17 @@ def run_trained_agent(args):
         np.random.seed(args.seed)
         torch.manual_seed(args.seed)
 
+
+    match = re.search(r'.*?\d{14}', ckpt_path)
+    if match: ckpt_base_dir =  match.group(0)
+    else: ckpt_base_dir = os.path.join(ckpt_path.split("/")[:-1])
+    algo_name = ckpt_base_dir.split("/")[-2].split("_")[0]
+    video_path = os.path.join(ckpt_base_dir, f"{algo_name}_rollout_0.xx_rand_y{args.y_range}_x{args.x_range}.mp4") if args.set_video_save_path else args.video_path
+
     # maybe create video writer
     video_writer = None
     if write_video:
-        video_writer = imageio.get_writer(args.video_path, fps=20)
+        video_writer = imageio.get_writer(video_path, fps=20)
 
     # maybe open hdf5 to write rollouts
     write_dataset = (args.dataset_path is not None)
@@ -239,6 +252,8 @@ def run_trained_agent(args):
         data_grp = data_writer.create_group("data")
         total_samples = 0
 
+
+    temp_num_success = 0
     rollout_stats = []
     for i in range(rollout_num_episodes):
         stats, traj = rollout(
@@ -253,6 +268,10 @@ def run_trained_agent(args):
             pred_phase = args.phase,
         )
         rollout_stats.append(stats)
+
+        temp_num_success += stats["Success_Rate"]
+        print(f"Current Success:  {temp_num_success} / {i+1};   Total Trial={rollout_num_episodes}")
+
 
         if write_dataset:
             # store transitions
@@ -278,8 +297,11 @@ def run_trained_agent(args):
     print("Average Rollout Stats")
     print(json.dumps(avg_rollout_stats, indent=4))
 
-    if write_video:
-        video_writer.close()
+    if write_video: video_writer.close()
+    if args.set_video_save_path:
+        updated_video_path = os.path.join(ckpt_base_dir, f"{algo_name}_rollout_{avg_rollout_stats['Success_Rate']}_rand_y{args.y_range}_x{args.x_range}.mp4") 
+        os.rename(video_path, updated_video_path)
+    
 
     if write_dataset:
         # global metadata
@@ -325,6 +347,26 @@ if __name__ == "__main__":
             it for rollouts",
     )
 
+
+    # x-range
+    parser.add_argument(
+        "--x_range",
+        type=float,
+        nargs='+',
+        default=None,
+        help="(optional) override x_range of object random initialization"
+    )
+
+
+    # y-range
+    parser.add_argument(
+        "--y_range",
+        type=float,
+        nargs='+',
+        default=None,
+        help="(optional) override y_range of object random initialization"
+    )
+
     # Whether to render rollouts to screen
     parser.add_argument(
         "--render",
@@ -338,6 +380,12 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="(optional) render rollouts to this video file path",
+    )
+
+    # Set video name automatically
+    parser.add_argument(
+        "--set_video_save_path",
+        action='store_true',
     )
 
     # How often to write video frames during the rollout

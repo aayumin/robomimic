@@ -446,7 +446,7 @@ def policy_from_checkpoint(device=None, ckpt_path=None, ckpt_dict=None, verbose=
     return model, ckpt_dict
 
 
-def env_from_checkpoint(ckpt_path=None, ckpt_dict=None, env_name=None, render=False, render_offscreen=False, verbose=False):
+def env_from_checkpoint(ckpt_path=None, ckpt_dict=None, env_name=None, render=False, render_offscreen=False, verbose=False, x_range=None, y_range=None):
     """
     Creates an environment using the metadata saved in a checkpoint.
 
@@ -482,6 +482,8 @@ def env_from_checkpoint(ckpt_path=None, ckpt_dict=None, env_name=None, render=Fa
         render_offscreen=render_offscreen,
         use_image_obs=shape_meta.get("use_images", False),
         use_depth_obs=shape_meta.get("use_depths", False),
+        x_range=x_range,
+        y_range=y_range,
     )
     config, _ = config_from_checkpoint(algo_name=ckpt_dict["algo_name"], ckpt_dict=ckpt_dict, verbose=False)
     env = EnvUtils.wrap_env_from_config(env, config=config) # apply environment wrapper, if applicable

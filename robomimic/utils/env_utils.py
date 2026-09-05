@@ -32,6 +32,8 @@ def get_env_class(env_meta=None, env_type=None, env=None):
         env (instance of EB.EnvBase): environment instance
     """
     env_type = get_env_type(env_meta=env_meta, env_type=env_type, env=env)
+
+
     if env_type == EB.EnvType.ROBOSUITE_TYPE:
         from robomimic.envs.env_robosuite import EnvRobosuite
         return EnvRobosuite
@@ -182,6 +184,7 @@ def create_env(
         lang=lang,
         **kwargs,
     )
+
     return env
 
 
@@ -192,6 +195,8 @@ def create_env_from_metadata(
     render_offscreen=False, 
     use_image_obs=False, 
     use_depth_obs=False, 
+    x_range=None,
+    y_range=None,
 ):
     """
     Create environment.
@@ -226,6 +231,8 @@ def create_env_from_metadata(
     env_type = get_env_type(env_meta=env_meta)
     env_kwargs = env_meta["env_kwargs"]
     env_kwargs["env_name"] = env_name
+    env_kwargs["x_range"] = x_range
+    env_kwargs["y_range"] = y_range
     lang = env_meta.get("lang", None)
 
     env = create_env(
