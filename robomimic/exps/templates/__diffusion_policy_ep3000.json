@@ -55,9 +55,7 @@
         "dataset_keys": [
             "actions",
             "rewards",
-            "dones",
-            "phase_labels",
-            "phase_percentages"
+            "dones"
         ],
         "action_keys": [
             "actions"
@@ -76,7 +74,7 @@
         "goal_mode": null,
         "cuda": true,
         "batch_size": 100,
-        "num_epochs": 5000,
+        "num_epochs": 3000,
         "seed": 1,
         "max_grad_norm": null
     },

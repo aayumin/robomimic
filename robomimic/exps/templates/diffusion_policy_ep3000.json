@@ -55,7 +55,9 @@
         "dataset_keys": [
             "actions",
             "rewards",
-            "dones"
+            "dones",
+            "phase_labels",
+            "phase_percentages"
         ],
         "action_keys": [
             "actions"

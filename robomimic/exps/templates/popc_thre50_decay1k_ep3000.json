@@ -29,7 +29,7 @@
         "rollout": {
             "enabled": true,
             "n": 50,
-            "horizon": 700,
+            "horizon": 400,
             "rate": 50,
             "warmstart": 1000,
             "terminate_on_success": true
@@ -74,8 +74,8 @@
         },
         "goal_mode": null,
         "cuda": true,
-        "batch_size": 100,
-        "num_epochs": 5000,
+        "batch_size": 256,
+        "num_epochs": 3000,
         "seed": 1,
         "max_grad_norm": null
     },
@@ -100,7 +100,7 @@
         "loss_weight": {
             "diffusion_loss": 1.0,
             "phase_loss": 0.5,
-            "aux_decay_epochs":5000
+            "aux_decay_epochs":1000
         },
         "ood": {
             "enabled": true,
@@ -167,7 +167,7 @@
                     "robot0_gripper_qpos"
                 ],
                 "rgb": [
-                    "sideview_image",
+                    "agentview_image",
                     "robot0_eye_in_hand_image"
                 ],
                 "depth": [],

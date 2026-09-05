@@ -1,5 +1,5 @@
 {
-    "algo_name": "epil",
+    "algo_name": "diffusion_policy",
     "experiment": {
         "name": "test",
         "validate": false,
@@ -29,7 +29,7 @@
         "rollout": {
             "enabled": true,
             "n": 50,
-            "horizon": 400,
+            "horizon": 700,
             "rate": 50,
             "warmstart": 1000,
             "terminate_on_success": true
@@ -39,7 +39,7 @@
     },
     "train": {
         "data": null,
-        "output_dir": "../EPIL_trained_models",
+        "output_dir": "../diffusion_policy_trained_models",
         "normalize_weights_by_ds_size": false,
         "num_data_workers": 0,
         "hdf5_cache_mode": "low_dim",
@@ -56,8 +56,8 @@
             "actions",
             "rewards",
             "dones",
-            "importance_score",
-            "phase_labels"
+            "phase_labels",
+            "phase_percentages"
         ],
         "action_keys": [
             "actions"
@@ -76,7 +76,7 @@
         "goal_mode": null,
         "cuda": true,
         "batch_size": 100,
-        "num_epochs": 5000,
+        "num_epochs": 3000,
         "seed": 1,
         "max_grad_norm": null
     },
@@ -98,21 +98,8 @@
                 }
             }
         },
-        "importance_score": {
-            "enabled": false,
-            "ignore_threshold": 0.05,
-            "maximize_threshold": 0.30
-        },
-        "phase_condition": {
-            "enabled": true,
-            "emb_dim": 16
-        },
-        "aux_head": {
-            "hidden_dim": 256
-        },
-        "phase_head": {
-            "enabled": true,
-            "loss_weight": 0.05
+        "importance_score":{
+            "enabled": false
         },
         "horizon": {
             "observation_horizon": 2,

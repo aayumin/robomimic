@@ -75,7 +75,7 @@
         "goal_mode": null,
         "cuda": true,
         "batch_size": 256,
-        "num_epochs": 5000,
+        "num_epochs": 3000,
         "seed": 1,
         "max_grad_norm": null
     },
@@ -100,11 +100,11 @@
         "loss_weight": {
             "diffusion_loss": 1.0,
             "phase_loss": 0.5,
-            "aux_decay_epochs":1000
+            "aux_decay_epochs":10000
         },
         "ood": {
             "enabled": true,
-            "threshold": 20.0,
+            "threshold": 50.0,
             "temperature" : 1.0,
             "momentum": 0.99,
             "cov_eps":  1e-4

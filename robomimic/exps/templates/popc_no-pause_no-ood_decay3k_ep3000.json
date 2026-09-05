@@ -68,14 +68,14 @@
         },
         "phase_config": {
             "preprocess": {
-                "enabled": true,
-                "method": "pause-aware"
+                "enabled": false,
+                "method": null
             }
         },
         "goal_mode": null,
         "cuda": true,
         "batch_size": 100,
-        "num_epochs": 5000,
+        "num_epochs": 3000,
         "seed": 1,
         "max_grad_norm": null
     },
@@ -100,7 +100,7 @@
         "loss_weight": {
             "diffusion_loss": 1.0,
             "phase_loss": 0.5,
-            "aux_decay_epochs":0
+            "aux_decay_epochs":3000
         },
         "ood": {
             "enabled": false,

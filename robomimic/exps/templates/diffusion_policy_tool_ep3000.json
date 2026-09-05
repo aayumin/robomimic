@@ -76,7 +76,7 @@
         "goal_mode": null,
         "cuda": true,
         "batch_size": 100,
-        "num_epochs": 5000,
+        "num_epochs": 3000,
         "seed": 1,
         "max_grad_norm": null
     },
@@ -149,7 +149,7 @@
                     "robot0_gripper_qpos"
                 ],
                 "rgb": [
-                    "agentview_image",
+                    "sideview_image",
                     "robot0_eye_in_hand_image"
                 ],
                 "depth": [],

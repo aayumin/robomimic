@@ -1,5 +1,5 @@
 {
-    "algo_name": "diffusion_policy",
+    "algo_name": "popc",
     "experiment": {
         "name": "test",
         "validate": false,
@@ -29,7 +29,7 @@
         "rollout": {
             "enabled": true,
             "n": 50,
-            "horizon": 700,
+            "horizon": 400,
             "rate": 50,
             "warmstart": 1000,
             "terminate_on_success": true
@@ -39,7 +39,7 @@
     },
     "train": {
         "data": null,
-        "output_dir": "../diffusion_policy_trained_models",
+        "output_dir": "../POPC_trained_models",
         "normalize_weights_by_ds_size": false,
         "num_data_workers": 0,
         "hdf5_cache_mode": "low_dim",
@@ -56,8 +56,7 @@
             "actions",
             "rewards",
             "dones",
-            "phase_labels",
-            "phase_percentages"
+            "phase_labels"
         ],
         "action_keys": [
             "actions"
@@ -75,8 +74,8 @@
         },
         "goal_mode": null,
         "cuda": true,
-        "batch_size": 100,
-        "num_epochs": 5000,
+        "batch_size": 256,
+        "num_epochs": 3000,
         "seed": 1,
         "max_grad_norm": null
     },
@@ -98,8 +97,27 @@
                 }
             }
         },
-        "importance_score":{
-            "enabled": false
+        "loss_weight": {
+            "diffusion_loss": 1.0,
+            "phase_loss": 0.5,
+            "aux_decay_epochs":0
+        },
+        "ood": {
+            "enabled": true,
+            "threshold": 60.0,
+            "temperature" : 1.0,
+            "momentum": 0.99,
+            "cov_eps":  1e-4
+        },
+        "phase_condition": {
+            "enabled": true,
+            "emb_dim": 16
+        },
+        "aux_head": {
+            "hidden_dim": 256
+        },
+        "phase_head": {
+            "enabled": true
         },
         "horizon": {
             "observation_horizon": 2,
@@ -149,7 +167,7 @@
                     "robot0_gripper_qpos"
                 ],
                 "rgb": [
-                    "sideview_image",
+                    "agentview_image",
                     "robot0_eye_in_hand_image"
                 ],
                 "depth": [],
