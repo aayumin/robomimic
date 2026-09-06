@@ -347,7 +347,7 @@ class DiffusionPolicyUNet(PolicyAlgo):
         action = action.unsqueeze(0)
     
         if return_phase:
-            return action, 0.0
+            return action, torch.zeros(1)
         else:
             return action
         
