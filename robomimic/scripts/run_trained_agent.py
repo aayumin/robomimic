@@ -144,9 +144,8 @@ def rollout(policy, env, horizon, render=False, video_writer=None, video_skip=5,
                         current_img[:512,:512] = current_frame
                         current_img[512+5:-5, 5:105] = 255
                         if pred_phase is not None and phase_value is not None:
-                            pass
                             # print(f"current phase [0.0 - 1.0] : {phase_value}")
-                            # current_img[512+5:-5, 5:5+int(100*phase_value[0]),1:] = 0  # red color
+                            current_img[512+5:-5, 5:5+int(100*phase_value[0]),1:] = 0  # red color
                         video_img.append(current_img)
                     video_img = np.concatenate(video_img, axis=1) # concatenate horizontally
                     video_writer.append_data(video_img)
@@ -238,7 +237,7 @@ def run_trained_agent(args):
     if match: ckpt_base_dir =  match.group(0)
     else: ckpt_base_dir = os.path.join(ckpt_path.split("/")[:-1])
     algo_name = ckpt_base_dir.split("/")[-2].split("_")[0]
-    video_path = os.path.join(ckpt_base_dir, f"{algo_name}_rollout_0.xx_rand_y{args.y_range}_x{args.x_range}.mp4") if args.set_video_save_path else args.video_path
+    video_path = os.path.join(ckpt_base_dir, f"{algo_name}_rollout_0.xx_rand_x{args.x_range}_y{args.y_range}.mp4") if args.set_video_save_path else args.video_path
 
     # maybe create video writer
     video_writer = None
@@ -299,7 +298,11 @@ def run_trained_agent(args):
 
     if write_video: video_writer.close()
     if args.set_video_save_path:
-        updated_video_path = os.path.join(ckpt_base_dir, f"{algo_name}_rollout_{avg_rollout_stats['Success_Rate']}_rand_y{args.y_range}_x{args.x_range}.mp4") 
+        filename_cnt = 1
+        while True:
+            updated_video_path = os.path.join(ckpt_base_dir, f"{algo_name}_rollout_{avg_rollout_stats['Success_Rate']}_rand_y{args.y_range}_x{args.x_range}_{filename_cnt}.mp4") 
+            if not os.path.exists(updated_video_path): break
+            filename_cnt += 1
         os.rename(video_path, updated_video_path)
     
 
