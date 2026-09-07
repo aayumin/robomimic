@@ -206,7 +206,7 @@ def run_trained_agent(args):
     device = TorchUtils.get_torch_device(try_to_use_cuda=True)
 
     # restore policy
-    policy, ckpt_dict = FileUtils.policy_from_checkpoint(ckpt_path=ckpt_path, device=device, verbose=True)
+    policy, ckpt_dict = FileUtils.policy_from_checkpoint(ckpt_path=ckpt_path, device=device, verbose=False)
 
     # read rollout settings
     rollout_num_episodes = args.n_rollouts
@@ -222,7 +222,7 @@ def run_trained_agent(args):
         env_name=args.env, 
         render=args.render, 
         render_offscreen=(args.video_path is not None or args.set_video_save_path), 
-        verbose=True,
+        verbose=False,
         x_range=args.x_range,
         y_range=args.y_range,
     )
@@ -300,7 +300,7 @@ def run_trained_agent(args):
     if args.set_video_save_path:
         filename_cnt = 1
         while True:
-            updated_video_path = os.path.join(ckpt_base_dir, f"{algo_name}_rollout_{avg_rollout_stats['Success_Rate']}_rand_y{args.y_range}_x{args.x_range}_{filename_cnt}.mp4") 
+            updated_video_path = os.path.join(ckpt_base_dir, f"{algo_name}_rollout_{avg_rollout_stats['Success_Rate']}_rand_x{args.x_range}_y{args.y_range}_{filename_cnt}.mp4") 
             if not os.path.exists(updated_video_path): break
             filename_cnt += 1
         os.rename(video_path, updated_video_path)
