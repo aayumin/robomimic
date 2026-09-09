@@ -13,37 +13,37 @@ echo "Using base dataset directory: $BASE_DATASET_DIR"
 ### mg ###
 
 
-# lift - mg, sparse
-python dataset_states_to_obs.py --done_mode 0 \
---dataset $BASE_DATASET_DIR/lift/mg/demo_v15.hdf5 \
---output_name low_dim_sparse_v15.hdf5
-python dataset_states_to_obs.py --done_mode 0 \
---dataset $BASE_DATASET_DIR/lift/mg/demo_v15.hdf5 \
---output_name image_sparse_v15.hdf5 --camera_names agentview robot0_eye_in_hand --camera_height 84 --camera_width 84
+# # lift - mg, sparse
+# python dataset_states_to_obs.py --done_mode 0 \
+# --dataset $BASE_DATASET_DIR/lift/mg/demo_v15.hdf5 \
+# --output_name low_dim_sparse_v15.hdf5
+# python dataset_states_to_obs.py --done_mode 0 \
+# --dataset $BASE_DATASET_DIR/lift/mg/demo_v15.hdf5 \
+# --output_name image_sparse_v15.hdf5 --camera_names agentview robot0_eye_in_hand --camera_height 84 --camera_width 84
 
-# lift - mg, dense
-python dataset_states_to_obs.py --done_mode 0 --shaped \
---dataset $BASE_DATASET_DIR/lift/mg/demo_v15.hdf5 \
---output_name low_dim_dense_v15.hdf5
-python dataset_states_to_obs.py --done_mode 0 --shaped \
---dataset $BASE_DATASET_DIR/lift/mg/demo_v15.hdf5 \
---output_name image_dense_v15.hdf5 --camera_names agentview robot0_eye_in_hand --camera_height 84 --camera_width 84
+# # lift - mg, dense
+# python dataset_states_to_obs.py --done_mode 0 --shaped \
+# --dataset $BASE_DATASET_DIR/lift/mg/demo_v15.hdf5 \
+# --output_name low_dim_dense_v15.hdf5
+# python dataset_states_to_obs.py --done_mode 0 --shaped \
+# --dataset $BASE_DATASET_DIR/lift/mg/demo_v15.hdf5 \
+# --output_name image_dense_v15.hdf5 --camera_names agentview robot0_eye_in_hand --camera_height 84 --camera_width 84
 
-# can - mg, sparse
-python dataset_states_to_obs.py --done_mode 0 \
---dataset $BASE_DATASET_DIR/can/mg/demo_v15.hdf5 \
---output_name low_dim_sparse_v15.hdf5
-python dataset_states_to_obs.py --done_mode 0 \
---dataset $BASE_DATASET_DIR/can/mg/demo_v15.hdf5 \
---output_name image_sparse_v15.hdf5 --camera_names agentview robot0_eye_in_hand --camera_height 84 --camera_width 84
+# # can - mg, sparse
+# python dataset_states_to_obs.py --done_mode 0 \
+# --dataset $BASE_DATASET_DIR/can/mg/demo_v15.hdf5 \
+# --output_name low_dim_sparse_v15.hdf5
+# python dataset_states_to_obs.py --done_mode 0 \
+# --dataset $BASE_DATASET_DIR/can/mg/demo_v15.hdf5 \
+# --output_name image_sparse_v15.hdf5 --camera_names agentview robot0_eye_in_hand --camera_height 84 --camera_width 84
 
-# can - mg, dense
-python dataset_states_to_obs.py --done_mode 0 --shaped \
---dataset $BASE_DATASET_DIR/can/mg/demo_v15.hdf5 \
---output_name low_dim_dense_v15.hdf5
-python dataset_states_to_obs.py --done_mode 0 --shaped \
---dataset $BASE_DATASET_DIR/can/mg/demo_v15.hdf5 \
---output_name image_dense_v15.hdf5 --camera_names agentview robot0_eye_in_hand --camera_height 84 --camera_width 84
+# # can - mg, dense
+# python dataset_states_to_obs.py --done_mode 0 --shaped \
+# --dataset $BASE_DATASET_DIR/can/mg/demo_v15.hdf5 \
+# --output_name low_dim_dense_v15.hdf5
+# python dataset_states_to_obs.py --done_mode 0 --shaped \
+# --dataset $BASE_DATASET_DIR/can/mg/demo_v15.hdf5 \
+# --output_name image_dense_v15.hdf5 --camera_names agentview robot0_eye_in_hand --camera_height 84 --camera_width 84
 
 
 ### NOTE: we use done-mode 2 for PH / MH (dones on task success and end of trajectory) ###
@@ -76,13 +76,13 @@ python dataset_states_to_obs.py --done_mode 2 \
 --dataset $BASE_DATASET_DIR/square/ph/demo_v15.hdf5 \
 --output_name image_v15.hdf5 --camera_names agentview robot0_eye_in_hand --camera_height 84 --camera_width 84
 
-# transport - ph
-python dataset_states_to_obs.py --done_mode 2 \
---dataset $BASE_DATASET_DIR/transport/ph/demo_v15.hdf5 \
---output_name low_dim_v15.hdf5
-python dataset_states_to_obs.py --done_mode 2 \
---dataset $BASE_DATASET_DIR/transport/ph/demo_v15.hdf5 \
---output_name image_v15.hdf5 --camera_names shouldercamera0 shouldercamera1 robot0_eye_in_hand robot1_eye_in_hand --camera_height 84 --camera_width 84
+# # transport - ph
+# python dataset_states_to_obs.py --done_mode 2 \
+# --dataset $BASE_DATASET_DIR/transport/ph/demo_v15.hdf5 \
+# --output_name low_dim_v15.hdf5
+# python dataset_states_to_obs.py --done_mode 2 \
+# --dataset $BASE_DATASET_DIR/transport/ph/demo_v15.hdf5 \
+# --output_name image_v15.hdf5 --camera_names shouldercamera0 shouldercamera1 robot0_eye_in_hand robot1_eye_in_hand --camera_height 84 --camera_width 84
 
 # tool hang - ph
 python dataset_states_to_obs.py --done_mode 2 \
@@ -120,21 +120,21 @@ python dataset_states_to_obs.py --done_mode 2 \
 --dataset $BASE_DATASET_DIR/square/mh/demo_v15.hdf5 \
 --output_name image_v15.hdf5 --camera_names agentview robot0_eye_in_hand --camera_height 84 --camera_width 84
 
-# transport - mh
-python dataset_states_to_obs.py --done_mode 2 \
---dataset $BASE_DATASET_DIR/transport/mh/demo_v15.hdf5 \
---output_name low_dim_v15.hdf5
-python dataset_states_to_obs.py --done_mode 2 \
---dataset $BASE_DATASET_DIR/transport/mh/demo_v15.hdf5 \
---output_name image_v15.hdf5 --camera_names shouldercamera0 shouldercamera1 robot0_eye_in_hand robot1_eye_in_hand --camera_height 84 --camera_width 84
+# # transport - mh
+# python dataset_states_to_obs.py --done_mode 2 \
+# --dataset $BASE_DATASET_DIR/transport/mh/demo_v15.hdf5 \
+# --output_name low_dim_v15.hdf5
+# python dataset_states_to_obs.py --done_mode 2 \
+# --dataset $BASE_DATASET_DIR/transport/mh/demo_v15.hdf5 \
+# --output_name image_v15.hdf5 --camera_names shouldercamera0 shouldercamera1 robot0_eye_in_hand robot1_eye_in_hand --camera_height 84 --camera_width 84
 
 
 ### can-paired ###
 
 
-python dataset_states_to_obs.py --done_mode 2 \
---dataset $BASE_DATASET_DIR/can/paired/demo_v15.hdf5 \
---output_name low_dim_v15.hdf5
-python dataset_states_to_obs.py --done_mode 2 \
---dataset $BASE_DATASET_DIR/can/paired/demo_v15.hdf5 \
---output_name image_v15.hdf5 --camera_names agentview robot0_eye_in_hand --camera_height 84 --camera_width 84
+# python dataset_states_to_obs.py --done_mode 2 \
+# --dataset $BASE_DATASET_DIR/can/paired/demo_v15.hdf5 \
+# --output_name low_dim_v15.hdf5
+# python dataset_states_to_obs.py --done_mode 2 \
+# --dataset $BASE_DATASET_DIR/can/paired/demo_v15.hdf5 \
+# --output_name image_v15.hdf5 --camera_names agentview robot0_eye_in_hand --camera_height 84 --camera_width 84
