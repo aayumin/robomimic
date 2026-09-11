@@ -13,6 +13,7 @@ from robomimic.algo.diffusion_policy import DiffusionPolicyUNet
 from robomimic.algo.kccvae import KCCVAEPolicy
 from robomimic.algo.act_baseline import ACTBaselinePolicy
 from robomimic.algo.act_official import ACTOfficialPolicy
+from robomimic.algo.act_popc import ACTPOPCPolicy
 from robomimic.algo.tcca import TCCAPolicy
 from robomimic.algo.drcan import DRCANPolicy
 from robomimic.algo.epil import EPILPolicy

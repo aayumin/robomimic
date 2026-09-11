@@ -85,13 +85,15 @@ class DETRVAE(nn.Module):
         self.latent_out_proj = nn.Linear(self.latent_dim, hidden_dim) # project latent sample to embedding
         self.additional_pos_embed = nn.Embedding(2, hidden_dim) # learned position embedding for proprio and latent
 
-    def forward(self, qpos, image, env_state, actions=None, is_pad=None):
+    def forward(self, qpos, image, env_state, actions=None, is_pad=None, aux_head=None):
         """
         qpos: batch, qpos_dim
         image: batch, num_cam, channel, height, width
         env_state: None
         actions: batch, seq, action_dim
         """
+
+
         is_training = actions is not None # train or val
         bs, _ = qpos.shape
         ### Obtain latent z from action sequence
@@ -104,6 +106,8 @@ class DETRVAE(nn.Module):
             cls_embed = torch.unsqueeze(cls_embed, axis=0).repeat(bs, 1, 1) # (bs, 1, hidden_dim)
             encoder_input = torch.cat([cls_embed, qpos_embed, action_embed], axis=1) # (bs, seq+1, hidden_dim)
             encoder_input = encoder_input.permute(1, 0, 2) # (seq+1, bs, hidden_dim)
+
+
             # do not mask cls token
             cls_joint_is_pad = torch.full((bs, 2), False).to(qpos.device) # False: not a padding
             is_pad = torch.cat([cls_joint_is_pad, is_pad], axis=1)  # (bs, seq+1)
@@ -144,9 +148,17 @@ class DETRVAE(nn.Module):
             env_state = self.input_proj_env_state(env_state)
             transformer_input = torch.cat([qpos, env_state], axis=1) # seq length = 2
             hs = self.transformer(transformer_input, None, self.query_embed.weight, self.pos.weight)[0]
+
+        # print(f"all_cam_features: {src.shape}")  # (B, 512,  H', 2 * W')
+        # print(f"proprio_input: {proprio_input.shape}")  ## (B, 512)
+        ## TODO
+        src_2d = src.mean(dim=(2, 3))  # [B, 512]
+        obs_cond = torch.cat([src_2d, proprio_input], dim=-1)  # [B, 1024]
+        current_phase_logits, next_phase_logits, phase_emb = aux_head(obs_cond)
+        
         a_hat = self.action_head(hs)
         is_pad_hat = self.is_pad_head(hs)
-        return a_hat, is_pad_hat, [mu, logvar]
+        return a_hat, is_pad_hat, [mu, logvar], current_phase_logits, next_phase_logits, phase_emb
 
 
 
