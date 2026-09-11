@@ -152,13 +152,19 @@ class DETRVAE(nn.Module):
         # print(f"all_cam_features: {src.shape}")  # (B, 512,  H', 2 * W')
         # print(f"proprio_input: {proprio_input.shape}")  ## (B, 512)
         ## TODO
-        src_2d = src.mean(dim=(2, 3))  # [B, 512]
-        obs_cond = torch.cat([src_2d, proprio_input], dim=-1)  # [B, 1024]
-        current_phase_logits, next_phase_logits, phase_emb = aux_head(obs_cond)
+        if aux_head is not None:
+            src_2d = src.mean(dim=(2, 3))  # [B, 512]
+            obs_cond = torch.cat([src_2d, proprio_input], dim=-1)  # [B, 1024]
+            current_phase_logits, next_phase_logits, phase_emb = aux_head(obs_cond)
+        else:
+            current_phase_logits, next_phase_logits, phase_emb = None, None, None
         
         a_hat = self.action_head(hs)
         is_pad_hat = self.is_pad_head(hs)
-        return a_hat, is_pad_hat, [mu, logvar], current_phase_logits, next_phase_logits, phase_emb
+        if aux_head is not None:
+            return a_hat, is_pad_hat, [mu, logvar], current_phase_logits, next_phase_logits, phase_emb
+        else:
+            return a_hat, is_pad_hat, [mu, logvar]
 
 
 
