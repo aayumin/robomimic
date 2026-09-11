@@ -97,7 +97,7 @@
         },
         "ood": {
             "enabled": true,
-            "threshold": null,
+            "threshold": 50.0,
             "temperature" : 1.0,
             "momentum": 0.99,
             "cov_eps":  1e-4
@@ -115,7 +115,7 @@
         "loss_weight": {
             "kl": 10.0,
             "phase_loss": 0.5,
-            "aux_decay_epochs":0
+            "aux_decay_epochs":3000
         },
         "horizon": {
             "prediction_horizon": 16
